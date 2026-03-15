@@ -1,0 +1,49 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Data — raw and processed (too large for git)
+data/raw/articles.jsonl
+data/raw/.scraped_ids
+data/processed/chunks.jsonl
+data/processed/stats.json
+kaggle_notebook.py
+# FAISS index (large binary files — rebuild from Kaggle)
+faiss_index/index.bin
+faiss_index/metadata.jsonl
+
+# HuggingFace model cache
+C:/HuggingFaceCache/
+*.safetensors
+*.bin
+
+# Evaluation output (generated, not source)
+evaluation/report.json
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
