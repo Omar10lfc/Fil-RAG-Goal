@@ -33,6 +33,8 @@ import argparse
 from pathlib import Path
 from dataclasses import dataclass, field
 from collections import defaultdict
+from dotenv import load_dotenv
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -417,9 +419,22 @@ DEFAULT_TEST_SET = [
 # Metrics
 # ════════════════════════════════════════════════════════════════════════════
 
+# Normalise both sides of any string-level metric so \u0629\u2192\u0647, \u0649\u2192\u064A, alef variants,
+# and tashkeel don't show up as "different" to ROUGE/word-overlap. Without this,
+# the previous report showed ROUGE \u2248 0.013 even when retrieved chunks clearly
+# contained the answer \u2014 the retriever normalises but the metric didn't.
+_HARAKAT_E = re.compile(r'[\u064B-\u065F\u0670\u0640]')
+
+def _normalize_for_metric(text: str) -> str:
+    text = _HARAKAT_E.sub('', text)
+    for frm, to in [('[\u0623\u0625\u0622\u0671]', '\u0627'), ('\u0649', '\u064A'), ('\u0629', '\u0647'), ('\u0624', '\u0648')]:
+        text = re.sub(frm, to, text)
+    return text
+
+
 def rouge1_f1(prediction: str, reference: str) -> float:
-    """ROUGE-1 F1 score (no deps, Arabic-aware tokenization)."""
-    tok = lambda t: set(re.findall(r'[\u0600-\u06FF\w]+', t.lower()))
+    """ROUGE-1 F1 with Arabic normalisation applied to BOTH sides."""
+    tok = lambda t: set(re.findall(r'[\u0600-\u06FF\w]+', _normalize_for_metric(t).lower()))
     pred_tok = tok(prediction)
     ref_tok  = tok(reference)
     if not ref_tok or not pred_tok:
@@ -430,6 +445,35 @@ def rouge1_f1(prediction: str, reference: str) -> float:
     if precision + recall == 0:
         return 0.0
     return 2 * precision * recall / (precision + recall)
+
+
+# Embedding-based answer similarity (loaded lazily). Reuses the e5-base model
+# the retriever already loads, so the eval doesn't pay a second model load.
+_SIM_MODEL = None
+
+def _get_sim_model():
+    global _SIM_MODEL
+    if _SIM_MODEL is None:
+        from sentence_transformers import SentenceTransformer
+        _SIM_MODEL = SentenceTransformer("intfloat/multilingual-e5-base")
+    return _SIM_MODEL
+
+
+def embedding_similarity(prediction: str, reference: str) -> float:
+    """Cosine similarity between prediction and reference embeddings.
+    Robust to Arabic surface-form variation \u2014 a much better signal than
+    token-overlap ROUGE for our use case."""
+    if not prediction or not reference:
+        return 0.0
+    import numpy as np
+    model = _get_sim_model()
+    embs = model.encode(
+        ["query: " + prediction, "query: " + reference],
+        normalize_embeddings=True,
+        convert_to_numpy=True,
+        show_progress_bar=False,
+    )
+    return float(np.dot(embs[0], embs[1]))
 
 
 def keyword_hit(retrieved_texts: list[str], keywords: list[str]) -> float:
@@ -470,6 +514,7 @@ class ExperimentResult:
     mrr_scores:     list[float] = field(default_factory=list)
     latencies_ms:   list[float] = field(default_factory=list)
     intents:        list[str]   = field(default_factory=list)
+    intent_acc:     list[float] = field(default_factory=list)
 
     # Per-intent breakdown: {intent: [scores]}
     per_intent_rouge:    dict = field(default_factory=lambda: defaultdict(list))
@@ -490,6 +535,10 @@ class ExperimentResult:
     @property
     def avg_latency(self) -> float:
         return _avg(self.latencies_ms)
+
+    @property
+    def avg_intent_acc(self) -> float:
+        return _avg(self.intent_acc)
 
     def per_intent_summary(self) -> dict:
         result = {}
@@ -513,6 +562,7 @@ def _avg(lst: list) -> float:
 # ════════════════════════════════════════════════════════════════════════════
 
 def run_retrieval_experiment(
+    retriever,
     test_cases: list[dict],
     use_bm25:   bool,
     use_dense:  bool,
@@ -521,71 +571,95 @@ def run_retrieval_experiment(
     """
     Evaluate retrieval quality for a given configuration.
     Does NOT call Groq — only tests retriever.
+
+    Takes a pre-loaded retriever and toggles components in place; saves and
+    restores the originals so successive ablations don't permanently mutate it.
     """
-    from retrieval.hybrid_retriever import FilGoalRetriever
+    from qa_engine.intent import detect_intent
 
-    result    = ExperimentResult(name=name)
-    retriever = FilGoalRetriever()
-    retriever.load()
+    result = ExperimentResult(name=name)
 
-    # Disable components for ablation
+    saved = (retriever.bm25, retriever.index, retriever.model)
     if not use_bm25:
         retriever.bm25 = None
     if not use_dense:
         retriever.index = None
         retriever.model = None
 
-    for case in test_cases:
-        q        = case["question"]
-        ref      = case["reference"]
-        keywords = case.get("keywords", [])
-        intent   = case.get("intent", "general_football")
+    try:
+        for case in test_cases:
+            q        = case["question"]
+            ref      = case["reference"]
+            keywords = case.get("keywords", [])
+            intent   = case.get("intent", "general_football")
 
-        t0     = time.time()
-        chunks = retriever.retrieve(q, top_k=5)
-        ms     = (time.time() - t0) * 1000
+            t0     = time.time()
+            chunks = retriever.retrieve(q, top_k=5)
+            ms     = (time.time() - t0) * 1000
 
-        texts = [c.get("text", "") for c in chunks]
-        r1    = rouge1_f1(" ".join(texts), ref)
-        kh    = keyword_hit(texts, keywords)
-        mrr   = mrr_score(texts, keywords)
+            texts = [c.get("text", "") for c in chunks]
+            r1    = rouge1_f1(" ".join(texts), ref)
+            kh    = keyword_hit(texts, keywords)
+            mrr   = mrr_score(texts, keywords)
+            ia    = intent_accuracy(detect_intent(q), intent)
 
-        result.rouge_scores.append(r1)
-        result.keyword_hits.append(kh)
-        result.mrr_scores.append(mrr)
-        result.latencies_ms.append(ms)
-        result.intents.append(intent)
-        result.per_intent_rouge[intent].append(r1)
-        result.per_intent_keywords[intent].append(kh)
+            result.rouge_scores.append(r1)
+            result.keyword_hits.append(kh)
+            result.mrr_scores.append(mrr)
+            result.latencies_ms.append(ms)
+            result.intents.append(intent)
+            result.intent_acc.append(ia)
+            result.per_intent_rouge[intent].append(r1)
+            result.per_intent_keywords[intent].append(kh)
 
-    return result
+        return result
+    finally:
+        retriever.bm25, retriever.index, retriever.model = saved
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # End-to-End RAG Evaluation (optional, requires Groq)
 # ════════════════════════════════════════════════════════════════════════════
 
-def run_rag_evaluation(test_cases: list[dict]) -> dict:
+GROQ_ERROR_TOKEN = "حدث خطأ أثناء توليد الإجابة"
+
+
+def run_rag_evaluation(test_cases: list[dict], retriever=None) -> dict:
     """
     Full RAG evaluation: retriever + LLM answer quality.
     Also measures intent detection accuracy.
+
+    If `retriever` is provided, the bot reuses it instead of cold-starting a
+    second copy. The same model is also wired into embedding_similarity() to
+    avoid loading multilingual-e5-base twice.
     """
     from qa_engine.rag_pipeline import FilGoalRAG, detect_intent
 
-    bot = FilGoalRAG()
+    bot = FilGoalRAG(retriever=retriever)
     bot.load()
+
+    # Reuse retriever's already-loaded e5 model for answer-similarity scoring.
+    global _SIM_MODEL
+    _SIM_MODEL = bot.retriever.model
 
     intent_correct = 0
     rouge_scores   = []
+    sim_scores     = []
     keyword_hits   = []
+    refusal_correct = []
     latencies      = []
-    per_intent     = defaultdict(lambda: {"rouge": [], "keywords": [], "intent_acc": []})
+    per_intent     = defaultdict(lambda: {"rouge": [], "sim": [], "keywords": [], "intent_acc": []})
+
+    REFUSAL_TOKEN = "لا تتوفر"   # canonical phrase from the refusal prompt
+
+    n_groq_failures = 0
 
     for i, case in enumerate(test_cases):
         q        = case["question"]
         ref      = case["reference"]
         keywords = case.get("keywords", [])
         expected = case.get("intent", "general_football")
+        is_refusal = case.get("expected_refusal", False)
 
         log.info(f"  [{i+1}/{len(test_cases)}] {q[:50]}...")
 
@@ -593,13 +667,31 @@ def run_rag_evaluation(test_cases: list[dict]) -> dict:
         result = bot.answer(q)
         ms     = (time.time() - t0) * 1000
 
-        answer          = result.get("answer", "")
+        answer           = result.get("answer", "")
         predicted_intent = result.get("intent", "")
 
+        # Skip cases where Groq itself failed — scoring an infrastructure-level
+        # error string against the reference would unfairly penalise the model.
+        if GROQ_ERROR_TOKEN in answer:
+            n_groq_failures += 1
+            log.warning(f"    ⚠ Groq error — case excluded from metrics")
+            continue
+
         # Metrics
-        r1  = rouge1_f1(answer, ref)
-        kh  = keyword_hit([answer] + [s.get("title","") for s in result.get("sources",[])], keywords)
-        ia  = intent_accuracy(predicted_intent, expected)
+        r1   = rouge1_f1(answer, ref)
+        kh   = keyword_hit([answer] + [s.get("title","") for s in result.get("sources",[])], keywords)
+        ia   = intent_accuracy(predicted_intent, expected)
+
+        # Embed-sim only makes sense for content answers — refusal cases are
+        # graded separately via refusal_accuracy. Including them as 0.0 in the
+        # average artificially deflates per-intent scores in proportion to the
+        # share of refusal cases in that intent.
+        if is_refusal:
+            refusal_correct.append(1.0 if REFUSAL_TOKEN in answer else 0.0)
+        else:
+            sim = embedding_similarity(answer, ref)
+            sim_scores.append(sim)
+            per_intent[expected]["sim"].append(sim)
 
         rouge_scores.append(r1)
         keyword_hits.append(kh)
@@ -611,15 +703,23 @@ def run_rag_evaluation(test_cases: list[dict]) -> dict:
         per_intent[expected]["intent_acc"].append(ia)
 
     n = len(test_cases)
+    n_scored = n - n_groq_failures
     summary = {
-        "n_cases":          n,
-        "avg_rouge1":       round(_avg(rouge_scores), 3),
-        "avg_keyword_hit":  round(_avg(keyword_hits), 3),
-        "intent_accuracy":  round(intent_correct / n, 3),
-        "avg_latency_ms":   round(_avg(latencies), 1),
+        "n_cases":           n,
+        "n_scored":          n_scored,
+        "n_groq_failures":   n_groq_failures,
+        "avg_rouge1":        round(_avg(rouge_scores), 3),
+        "avg_embed_sim":     round(_avg(sim_scores), 3),
+        "n_embed_sim":       len(sim_scores),
+        "avg_keyword_hit":   round(_avg(keyword_hits), 3),
+        "intent_accuracy":   round(intent_correct / n_scored, 3) if n_scored else 0.0,
+        "refusal_accuracy":  round(_avg(refusal_correct), 3) if refusal_correct else None,
+        "n_refusal_cases":   len(refusal_correct),
+        "avg_latency_ms":    round(_avg(latencies), 1),
         "per_intent": {
             intent: {
                 "avg_rouge1":      round(_avg(v["rouge"]), 3),
+                "avg_embed_sim":   round(_avg(v["sim"]), 3),
                 "avg_keyword_hit": round(_avg(v["keywords"]), 3),
                 "intent_accuracy": round(_avg(v["intent_acc"]), 3),
                 "n_cases":         len(v["rouge"]),
@@ -638,19 +738,20 @@ def print_ablation_table(results: list[ExperimentResult]):
     print(f"\n{'='*70}")
     print("ABLATION STUDY — Retrieval Quality")
     print(f"{'='*70}")
-    header = f"{'Experiment':<32} {'ROUGE-1':>8} {'Kw-Hit':>8} {'MRR':>8} {'Latency':>10}"
+    header = f"{'Experiment':<32} {'ROUGE-1':>8} {'Kw-Hit':>8} {'MRR':>8} {'IntAcc':>8} {'Latency':>10}"
     print(header)
-    print("-" * 70)
+    print("-" * 80)
     for r in results:
         row = (
             f"{r.name:<32} "
             f"{r.avg_rouge:>8.3f} "
             f"{r.avg_keyword_hit:>8.3f} "
             f"{r.avg_mrr:>8.3f} "
+            f"{r.avg_intent_acc:>8.3f} "
             f"{r.avg_latency:>8.0f}ms"
         )
         print(row)
-    print("-" * 70)
+    print("-" * 80)
 
     # Highlight winner
     best = max(results, key=lambda x: x.avg_keyword_hit)
@@ -678,10 +779,13 @@ def print_rag_results(rag: dict):
     print(f"\n{'='*70}")
     print("END-TO-END RAG EVALUATION")
     print(f"{'='*70}")
-    print(f"  Cases:            {rag['n_cases']}")
+    print(f"  Cases:            {rag['n_cases']}  (scored: {rag.get('n_scored', rag['n_cases'])}, groq failures: {rag.get('n_groq_failures', 0)})")
     print(f"  ROUGE-1:          {rag['avg_rouge1']:.3f}")
+    print(f"  Embed-Sim:        {rag.get('avg_embed_sim', 0):.3f}  (n={rag.get('n_embed_sim', '?')} content)   ← primary answer-quality metric")
     print(f"  Keyword Hit Rate: {rag['avg_keyword_hit']:.3f}")
     print(f"  Intent Accuracy:  {rag['intent_accuracy']:.3f}")
+    if rag.get('refusal_accuracy') is not None:
+        print(f"  Refusal Accuracy: {rag['refusal_accuracy']:.3f}  (n={rag['n_refusal_cases']})")
     print(f"  Avg Latency:      {rag['avg_latency_ms']:.0f}ms")
     print(f"\n  Per-Intent Breakdown:")
     print(f"  {'Intent':<22} {'ROUGE-1':>8} {'Kw-Hit':>8} {'Intent-Acc':>12} {'N':>5}")
@@ -715,6 +819,12 @@ def run_evaluation(run_rag: bool = False, save_report: bool = False):
         )
         log.info(f"📝 Created default test set: {TEST_SET_PATH}")
 
+    # ── Load retriever ONCE; ablation toggles components in place, then
+    #     the same instance is handed to the RAG eval. Avoids 4× cold-start.
+    from retrieval.hybrid_retriever import FilGoalRetriever
+    retriever = FilGoalRetriever()
+    retriever.load()
+
     # ── Ablation experiments ──────────────────────────────────────────────
     ablation_configs = [
         ("BM25 only (baseline)",    True,  False),
@@ -725,7 +835,7 @@ def run_evaluation(run_rag: bool = False, save_report: bool = False):
     ablation_results = []
     for name, use_bm25, use_dense in ablation_configs:
         log.info(f"\n▶ Running: {name}")
-        r = run_retrieval_experiment(test_cases, use_bm25, use_dense, name)
+        r = run_retrieval_experiment(retriever, test_cases, use_bm25, use_dense, name)
         ablation_results.append(r)
         log.info(
             f"   ROUGE-1={r.avg_rouge:.3f}  "
@@ -747,7 +857,7 @@ def run_evaluation(run_rag: bool = False, save_report: bool = False):
             log.warning("GROQ_API_KEY not set — skipping end-to-end RAG eval")
         else:
             log.info("\n▶ Running end-to-end RAG evaluation...")
-            rag_summary = run_rag_evaluation(test_cases)
+            rag_summary = run_rag_evaluation(test_cases, retriever=retriever)
             print_rag_results(rag_summary)
 
     # ── Save report ───────────────────────────────────────────────────────

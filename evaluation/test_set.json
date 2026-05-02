@@ -145,7 +145,7 @@
   {
     "question": "مين حارس مرمى الأهلي الأساسي؟",
     "reference": "حارس مرمى الأهلي",
-    "intent": "player_info",
+    "intent": "lineup",
     "difficulty": "medium",
     "keywords": [
       "الأهلي",
@@ -165,7 +165,7 @@
   {
     "question": "مين سجل هدف بيراميدز ضد الجيش الملكي؟",
     "reference": "هدف بيراميدز في مباراة الجيش الملكي",
-    "intent": "player_info",
+    "intent": "match_result",
     "difficulty": "hard",
     "keywords": [
       "بيراميدز",
@@ -185,7 +185,7 @@
   {
     "question": "رايس هيجدد عقده مع أرسنال؟",
     "reference": "أرسنال يبدأ مفاوضات تجديد عقد رايس وتيمبر",
-    "intent": "player_info",
+    "intent": "transfer_news",
     "difficulty": "medium",
     "keywords": [
       "رايس",
@@ -196,7 +196,7 @@
   {
     "question": "ماكتوميناي هيفضل في نابولي؟",
     "reference": "نابولي لم يتفاوض مع ماكتوميناي لتجديد عقده",
-    "intent": "player_info",
+    "intent": "transfer_news",
     "difficulty": "medium",
     "keywords": [
       "ماكتوميناي",
@@ -207,7 +207,7 @@
   {
     "question": "إيه تشكيل بيراميدز ضد الجيش الملكي؟",
     "reference": "تشكيل بيراميدز يضم توفيق ظهير وناصر ماهر",
-    "intent": "team_news",
+    "intent": "lineup",
     "difficulty": "easy",
     "keywords": [
       "بيراميدز",
@@ -218,7 +218,7 @@
   {
     "question": "تشكيل الجيش الملكي في مباراة بيراميدز؟",
     "reference": "تشكيل الجيش الملكي يضم يوسف الفحلي",
-    "intent": "team_news",
+    "intent": "lineup",
     "difficulty": "easy",
     "keywords": [
       "الجيش الملكي",
@@ -294,7 +294,7 @@
   {
     "question": "الأهلي فاز على الزمالك في كرة اليد؟",
     "reference": "الأهلي انتصر على الزمالك في دوري المحترفين لكرة اليد",
-    "intent": "team_news",
+    "intent": "match_result",
     "difficulty": "hard",
     "keywords": [
       "الأهلي",
@@ -498,7 +498,7 @@
   {
     "question": "يورتشيتش مدرب بيراميدز قال إيه بعد المباراة؟",
     "reference": "يورتشيتش مدرب بيراميدز علق على المباراة",
-    "intent": "general_football",
+    "intent": "team_news",
     "difficulty": "easy",
     "keywords": [
       "يورتشيتش",
@@ -508,11 +508,1332 @@
   {
     "question": "روسينيور قال إيه عن الأخطاء؟",
     "reference": "روسينيور قال أن الأخطاء جزء من كرة القدم",
-    "intent": "general_football",
+    "intent": "team_news",
     "difficulty": "medium",
     "keywords": [
       "روسينيور",
       "أخطاء"
     ]
+  },
+  {
+    "question": "من فاز بكأس العالم 1934؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "match_result",
+    "difficulty": "hard",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "كم عدد سكان طوكيو؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "ما عاصمة أستراليا؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "اشرح لي قانون نيوتن الثالث",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "ما هو سعر سهم تسلا اليوم؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "medium",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "كتب لي قصيدة عن الحب",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "medium",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "كم سجل لاعب اسمه ميسيكواهو في الدوري الإسباني؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "player_info",
+    "difficulty": "hard",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "تشكيل فريق نادي زاكوزينك؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "lineup",
+    "difficulty": "hard",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "هل انتقل لاعب اسمه فرغانتشي إلى مانشستر سيتي؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "transfer_news",
+    "difficulty": "hard",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "ما هي وصفة الكشري؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "ما نتيجة مباراة زد والزمالك في الدوري المصري؟",
+    "reference": "تعادل زد مع الزمالك 1-1 في الدوري المصري",
+    "intent": "match_result",
+    "difficulty": "easy",
+    "keywords": [
+      "زد",
+      "الزمالك",
+      "تعادل",
+      "الدوري المصري"
+    ]
+  },
+  {
+    "question": "ما نتيجة برشلونة وريال مايوركا في الليجا؟",
+    "reference": "فاز برشلونة على ريال مايوركا 3-0 في الدوري الإسباني",
+    "intent": "match_result",
+    "difficulty": "easy",
+    "keywords": [
+      "برشلونة",
+      "ريال مايوركا",
+      "الدوري الإسباني"
+    ]
+  },
+  {
+    "question": "ما نتيجة ليدز ومانشستر سيتي؟",
+    "reference": "فاز مانشستر سيتي على ليدز 1-0 في الدوري الإنجليزي",
+    "intent": "match_result",
+    "difficulty": "easy",
+    "keywords": [
+      "ليدز",
+      "مانشستر سيتي"
+    ]
+  },
+  {
+    "question": "نتيجة مانشستر يونايتد وتوتنام؟",
+    "reference": "فاز مانشستر يونايتد على توتنام 2-0",
+    "intent": "match_result",
+    "difficulty": "easy",
+    "keywords": [
+      "مانشستر يونايتد",
+      "توتنام"
+    ]
+  },
+  {
+    "question": "ما نتيجة المصري وزيسكو في كأس الكونفدرالية؟",
+    "reference": "فاز المصري على زيسكو 2-0 وتأهل لربع نهائي الكونفدرالية",
+    "intent": "match_result",
+    "difficulty": "medium",
+    "keywords": [
+      "المصري",
+      "زيسكو",
+      "الكونفدرالية",
+      "ربع نهائي"
+    ]
+  },
+  {
+    "question": "هل تأهل الترجي في دوري أبطال إفريقيا؟",
+    "reference": "ضمن الترجي التأهل بفوزه على بترو أتلتيكو في دوري أبطال إفريقيا",
+    "intent": "match_result",
+    "difficulty": "medium",
+    "keywords": [
+      "الترجي",
+      "بترو أتلتيكو",
+      "تأهل",
+      "أبطال إفريقيا"
+    ]
+  },
+  {
+    "question": "ماذا فعل الهلال السوداني أمام صنداونز؟",
+    "reference": "فرض الهلال السوداني التعادل على صنداونز وحافظ على الصدارة",
+    "intent": "match_result",
+    "difficulty": "medium",
+    "keywords": [
+      "الهلال السوداني",
+      "صنداونز",
+      "تعادل",
+      "الصدارة"
+    ]
+  },
+  {
+    "question": "نتيجة أتلتيكو مدريد وكلوب بروج؟",
+    "reference": "تعادل مثير بين أتلتيكو مدريد وكلوب بروج في دوري أبطال أوروبا",
+    "intent": "match_result",
+    "difficulty": "medium",
+    "keywords": [
+      "أتلتيكو مدريد",
+      "كلوب بروج",
+      "تعادل"
+    ]
+  },
+  {
+    "question": "نتيجة لقاء أتالانتا ولاتسيو في كأس إيطاليا؟",
+    "reference": "خطف أتالانتا تعادلا من لاتسيو في ذهاب نصف نهائي كأس إيطاليا",
+    "intent": "match_result",
+    "difficulty": "medium",
+    "keywords": [
+      "أتالانتا",
+      "لاتسيو",
+      "كأس إيطاليا",
+      "تعادل"
+    ]
+  },
+  {
+    "question": "الأهلي فاز على وادي دجلة بكام؟",
+    "reference": "فاز الأهلي على وادي دجلة 3-0 في الدوري المصري",
+    "intent": "match_result",
+    "difficulty": "medium",
+    "keywords": [
+      "الأهلي",
+      "وادي دجلة",
+      "ثلاثية"
+    ]
+  },
+  {
+    "question": "نتيجة برشلونة ضد إلتشي في الليجا؟",
+    "reference": "فوز برشلونة على إلتشي في الدوري الإسباني",
+    "intent": "match_result",
+    "difficulty": "medium",
+    "keywords": [
+      "برشلونة",
+      "إلتشي",
+      "الدوري الإسباني"
+    ]
+  },
+  {
+    "question": "هل تأهل بيراميدز ضد الجيش الملكي؟",
+    "reference": "تعادل بيراميدز مع الجيش الملكي في ذهاب ربع نهائي دوري أبطال إفريقيا",
+    "intent": "match_result",
+    "difficulty": "medium",
+    "keywords": [
+      "بيراميدز",
+      "الجيش الملكي",
+      "ذهاب",
+      "ربع نهائي"
+    ]
+  },
+  {
+    "question": "من تأهل لربع نهائي كأس مصر؟",
+    "reference": "تأهل طلائع الجيش لنصف نهائي كأس مصر بركلات الترجيح أمام سيراميكا",
+    "intent": "match_result",
+    "difficulty": "hard",
+    "keywords": [
+      "طلائع الجيش",
+      "كأس مصر",
+      "نصف النهائي",
+      "بالركلات"
+    ]
+  },
+  {
+    "question": "ما هدف الدقيقة 98 في مباراة بيراميدز ونهضة بركان؟",
+    "reference": "خطف نهضة بركان تعادلا في الدقيقة 98 أمام الهلال السوداني",
+    "intent": "match_result",
+    "difficulty": "hard",
+    "keywords": [
+      "نهضة بركان",
+      "الهلال السوداني",
+      "98",
+      "تعادل"
+    ]
+  },
+  {
+    "question": "ماذا حدث في دربي شمال لندن؟",
+    "reference": "مباراة دربي شمال لندن بين أرسنال وتوتنام",
+    "intent": "match_result",
+    "difficulty": "hard",
+    "keywords": [
+      "دربي شمال لندن",
+      "أرسنال",
+      "توتنام"
+    ]
+  },
+  {
+    "question": "نتيجة مباراة سيراميكا والاتحاد السكندري؟",
+    "reference": "فاز سيراميكا على الاتحاد السكندري وواصل تصدر الدوري المصري",
+    "intent": "match_result",
+    "difficulty": "medium",
+    "keywords": [
+      "سيراميكا",
+      "الاتحاد",
+      "تصدر",
+      "الدوري"
+    ]
+  },
+  {
+    "question": "هل خسر يوفنتوس أمام كالياري؟",
+    "reference": "خسر يوفنتوس أمام كالياري في الدوري الإيطالي",
+    "intent": "match_result",
+    "difficulty": "medium",
+    "keywords": [
+      "يوفنتوس",
+      "كالياري",
+      "خسارة"
+    ]
+  },
+  {
+    "question": "ما آخر إنجاز لمحمد صلاح في دوري أبطال أوروبا؟",
+    "reference": "صلاح يقترب من تحقيق أرقام تاريخية في دوري أبطال أوروبا",
+    "intent": "player_info",
+    "difficulty": "easy",
+    "keywords": [
+      "صلاح",
+      "دوري أبطال أوروبا",
+      "أرقام تاريخية"
+    ]
+  },
+  {
+    "question": "متى يعود ساكا للملاعب؟",
+    "reference": "ساكا يستهدف العودة قبل دربي شمال لندن",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "ساكا",
+      "دربي شمال لندن",
+      "العودة"
+    ]
+  },
+  {
+    "question": "ما حالة برونو جيماريش الصحية؟",
+    "reference": "برونو جيماريش سيغيب لمدة شهرين على الأقل بسبب الإصابة",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "برونو جيماريش",
+      "الإصابة",
+      "شهرين"
+    ]
+  },
+  {
+    "question": "ما عقوبة إمام عاشور بعد تخلفه عن السفر؟",
+    "reference": "الأهلي أعلن عقوبات إمام عاشور بعد تخلفه عن السفر لتنزانيا",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "إمام عاشور",
+      "الأهلي",
+      "عقوبات"
+    ]
+  },
+  {
+    "question": "ما الإنجاز الذي حققه تريزيجيه مؤخراً؟",
+    "reference": "تريزيجيه سجل الهدف رقم 100 في مسيرته مع الأندية",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "تريزيجيه",
+      "هدف",
+      "100",
+      "مسيرته"
+    ]
+  },
+  {
+    "question": "هل عاد عبد المنعم لتدريبات نيس؟",
+    "reference": "عبد المنعم أعلن عودته لتدريبات نيس بعد فترة هي الأصعب في حياته",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "عبد المنعم",
+      "نيس",
+      "العودة"
+    ]
+  },
+  {
+    "question": "كم مباراة لعب ساكا مع أرسنال؟",
+    "reference": "ساكا يخوض المباراة رقم 300 مع أرسنال",
+    "intent": "player_info",
+    "difficulty": "hard",
+    "keywords": [
+      "ساكا",
+      "أرسنال",
+      "300"
+    ]
+  },
+  {
+    "question": "هل عاد دي بروين لتدريبات نابولي؟",
+    "reference": "دي بروين يعود لتدريبات نابولي الجماعية بعد غياب 4 أشهر",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "دي بروين",
+      "نابولي",
+      "تدريبات",
+      "4 أشهر"
+    ]
+  },
+  {
+    "question": "ما حالة شيكو بانزا في الزمالك؟",
+    "reference": "شيكو بانزا يتواجد في تدريبات الزمالك بشكل طبيعي",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "بانزا",
+      "الزمالك",
+      "تدريبات"
+    ]
+  },
+  {
+    "question": "هل عاد بنزيمة لتدريبات اتحاد جدة؟",
+    "reference": "بنزيمة يعود لتدريبات اتحاد جدة وغموض موقفه أمام النجمة",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "بنزيمة",
+      "اتحاد جدة",
+      "تدريبات"
+    ]
+  },
+  {
+    "question": "هل أنهى رونالدو إضرابه؟",
+    "reference": "رونالدو أنهى إضرابه عن التدريب وعاد لتدريبات النصر",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "رونالدو",
+      "النصر",
+      "إضراب"
+    ]
+  },
+  {
+    "question": "ماذا قال نافاس عن زيدان وفينيسيوس؟",
+    "reference": "نافاس كشف طريقة تعامل زيدان الخاصة مع فينيسيوس جونيور في ريال مدريد",
+    "intent": "team_news",
+    "difficulty": "hard",
+    "keywords": [
+      "نافاس",
+      "زيدان",
+      "فينيسيوس",
+      "ريال مدريد"
+    ]
+  },
+  {
+    "question": "هل عاد روديجر لتدريبات ريال مدريد؟",
+    "reference": "روديجر يغيب عن قائمة ريال مدريد رغم عودته للتدريبات",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "روديجر",
+      "ريال مدريد",
+      "تدريبات"
+    ]
+  },
+  {
+    "question": "ما حالة ديانج مع الأهلي؟",
+    "reference": "في الجول يكشف تطورات موقف ديانج مع الأهلي وعرض بيراميدز",
+    "intent": "player_info",
+    "difficulty": "hard",
+    "keywords": [
+      "ديانج",
+      "الأهلي",
+      "بيراميدز"
+    ]
+  },
+  {
+    "question": "هل عاد هاوسن لتدريبات ريال مدريد؟",
+    "reference": "عودة هاوسن لتدريبات ريال مدريد",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "هاوسن",
+      "ريال مدريد",
+      "تدريبات"
+    ]
+  },
+  {
+    "question": "ما حالة تريزيجيه وزيزو الصحية؟",
+    "reference": "تريزيجيه وزيزو يواصلان البرنامج التأهيلي مع الأهلي",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "تريزيجيه",
+      "زيزو",
+      "تأهيلي"
+    ]
+  },
+  {
+    "question": "ما موقف لوكمان من أتلتيكو مدريد؟",
+    "reference": "لوكمان يعد جماهير أتلتيكو مدريد بصناعة الفارق",
+    "intent": "player_info",
+    "difficulty": "medium",
+    "keywords": [
+      "لوكمان",
+      "أتلتيكو مدريد"
+    ]
+  },
+  {
+    "question": "ما تصريحات حمزة عبد الكريم عن برشلونة؟",
+    "reference": "حمزة عبد الكريم يحصل على تصريح العمل لبدء اللعب مع برشلونة",
+    "intent": "team_news",
+    "difficulty": "hard",
+    "keywords": [
+      "حمزة عبد الكريم",
+      "برشلونة",
+      "تصريح العمل"
+    ]
+  },
+  {
+    "question": "ماذا قال توروب عن إمام عاشور؟",
+    "reference": "توروب أكد أن إمام عاشور أخطأ وسينال عقابه",
+    "intent": "team_news",
+    "difficulty": "easy",
+    "keywords": [
+      "توروب",
+      "إمام عاشور",
+      "عقابه"
+    ]
+  },
+  {
+    "question": "ماذا قال جوارديولا قبل مواجهة وست هام؟",
+    "reference": "جوارديولا قال إنه سيجري تعديلات على التشكيل وأنهم متلهفون للفوز مثل وست هام",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "جوارديولا",
+      "تشكيل",
+      "وست هام"
+    ]
+  },
+  {
+    "question": "ماذا قال فليك في مؤتمره الصحفي؟",
+    "reference": "فليك سعيد بالعمل مع ديكو وأكد أن لامين تحسن كثيرا",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "فليك",
+      "ديكو",
+      "لامين"
+    ]
+  },
+  {
+    "question": "ماذا قال سيميوني بعد فوز أتلتيكو؟",
+    "reference": "سيميوني قال نحن أبطال وقدمنا ليلة لا تنسى",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "سيميوني",
+      "أتلتيكو",
+      "أبطال"
+    ]
+  },
+  {
+    "question": "ماذا قال لابورتا عن تشافي؟",
+    "reference": "لابورتا قال إن تصريحات تشافي أحزنته وأن فليك يحقق الانتصارات بنفس اللاعبين",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "لابورتا",
+      "تشافي",
+      "فليك"
+    ]
+  },
+  {
+    "question": "هل ألغى الزمالك المؤتمر الصحفي قبل سموحة؟",
+    "reference": "إلغاء المؤتمر الصحفي الخاص بمباراة الزمالك ضد سموحة",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "الزمالك",
+      "سموحة",
+      "المؤتمر الصحفي"
+    ]
+  },
+  {
+    "question": "ماذا قال جوارديولا عن منافسة الدوري؟",
+    "reference": "جوارديولا قال إن معظم لاعبي سيتي لم يمروا بمنافسة قوية على الدوري",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "جوارديولا",
+      "سيتي",
+      "الدوري"
+    ]
+  },
+  {
+    "question": "ماذا قال جيسوس عن لقب الدوري السعودي؟",
+    "reference": "جيسوس قال سنحسم لقب الدوري بهذه العقلية",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "جيسوس",
+      "الدوري السعودي",
+      "اللقب"
+    ]
+  },
+  {
+    "question": "ماذا قال سباليتي عن أداء يوفنتوس؟",
+    "reference": "سباليتي ينتقد أداء لاعبي يوفنتوس بعد الخسارة أمام كالياري",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "سباليتي",
+      "يوفنتوس",
+      "كالياري"
+    ]
+  },
+  {
+    "question": "ماذا قال بوميل قبل مواجهة الأهلي؟",
+    "reference": "بوميل قال إن مواجهة الأهلي هي أول تحد كبير له ويعرف الترجي جيدا",
+    "intent": "team_news",
+    "difficulty": "hard",
+    "keywords": [
+      "بوميل",
+      "الأهلي",
+      "الترجي"
+    ]
+  },
+  {
+    "question": "ماذا أعلنه الأهلي عن إمام عاشور؟",
+    "reference": "الأهلي يعلن عقوبات إيقاف وتغريم وتدريب منفرد لإمام عاشور",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "الأهلي",
+      "إمام عاشور",
+      "إيقاف",
+      "تغريم"
+    ]
+  },
+  {
+    "question": "ماذا قال كاريك عن مباراة وست هام؟",
+    "reference": "كاريك قال كنا نتوقع صعوبة مباراة وست هام وراضي عن التعادل",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "كاريك",
+      "وست هام",
+      "تعادل"
+    ]
+  },
+  {
+    "question": "ماذا قال ماك أليستر عن الكرة الملغية؟",
+    "reference": "ماك أليستر قال إن الكرة لمست ذراعه في الهدف الملغي لكن القرار كان قاسيا",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "ماك أليستر",
+      "الهدف الملغي"
+    ]
+  },
+  {
+    "question": "ماذا قال مروان عثمان عن هدفه الأول؟",
+    "reference": "مروان عثمان فخور بهدفه الأول مع الأهلي ودعم الجمهور يمنحه الثقة",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "مروان عثمان",
+      "الأهلي",
+      "هدف"
+    ]
+  },
+  {
+    "question": "ماذا قال الشريعي قبل مباراة الزمالك؟",
+    "reference": "الشريعي قال إن تصريحاته قبل مباراة الزمالك كانت لرفع الضغط عن اللاعبين",
+    "intent": "team_news",
+    "difficulty": "hard",
+    "keywords": [
+      "الشريعي",
+      "الزمالك",
+      "تصريحاته"
+    ]
+  },
+  {
+    "question": "ماذا حدث في تدريبات الزمالك مؤخرا؟",
+    "reference": "مران الزمالك شهد انتظام عمر جابر وكايد ومعتمد جمال يصحح الأخطاء",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "الزمالك",
+      "مران",
+      "معتمد جمال"
+    ]
+  },
+  {
+    "question": "هل يدعم اتحاد الكرة الكرة المصرية؟",
+    "reference": "جوهر نبيل زار اتحاد الكرة وأكد دعم الدولة لمنظومة كرة القدم",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "اتحاد الكرة",
+      "جوهر نبيل",
+      "دعم الدولة"
+    ]
+  },
+  {
+    "question": "ماذا قال لاعب الكرمة العراقي؟",
+    "reference": "أحمد عبد القادر شارك بشكل كامل في تعادل الكرمة مع ديالي",
+    "intent": "team_news",
+    "difficulty": "hard",
+    "keywords": [
+      "الكرمة",
+      "ديالي",
+      "أحمد عبد القادر"
+    ]
+  },
+  {
+    "question": "ماذا قال كويستا عن هدف ميلان؟",
+    "reference": "كويستا أكد أن هدف ميلان من كرة ثابتة كان مخططا له",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "كويستا",
+      "ميلان"
+    ]
+  },
+  {
+    "question": "ماذا قال محمد يوسف عن غزل المحلة؟",
+    "reference": "محمد يوسف اعتذر عن عدم تولي مهمة تدريب غزل المحلة",
+    "intent": "team_news",
+    "difficulty": "medium",
+    "keywords": [
+      "محمد يوسف",
+      "غزل المحلة"
+    ]
+  },
+  {
+    "question": "هل ضم يوفنتوس النصيري؟",
+    "reference": "يوفنتوس يقترب من ضم يوسف النصيري",
+    "intent": "transfer_news",
+    "difficulty": "easy",
+    "keywords": [
+      "يوفنتوس",
+      "النصيري"
+    ]
+  },
+  {
+    "question": "هل تعاقد أهلي طرابلس مع شكشك؟",
+    "reference": "أهلي طرابلس يتعاقد مع مصطفى شكشك",
+    "intent": "transfer_news",
+    "difficulty": "easy",
+    "keywords": [
+      "أهلي طرابلس",
+      "شكشك"
+    ]
+  },
+  {
+    "question": "هل ضم سيراميكا لاعبا جديدا من زامبيا؟",
+    "reference": "سيراميكا كليوباترا يتعاقد مع الزامبي ديفيد سيموكوندا",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "سيراميكا",
+      "زامبي",
+      "سيموكوندا"
+    ]
+  },
+  {
+    "question": "هل ضم إيفرتون تيريك جورج؟",
+    "reference": "إيفرتون يضم تيريك جورج من تشيلسي",
+    "intent": "transfer_news",
+    "difficulty": "easy",
+    "keywords": [
+      "إيفرتون",
+      "تيريك جورج",
+      "تشيلسي"
+    ]
+  },
+  {
+    "question": "هل انتقل لانج إلى جالاتاسراي؟",
+    "reference": "جالاتاسراي يضم لانج من نابولي على سبيل الإعارة",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "جالاتاسراي",
+      "لانج",
+      "نابولي",
+      "إعارة"
+    ]
+  },
+  {
+    "question": "هل جدد يوفنتوس عقد بينسوليو؟",
+    "reference": "يوفنتوس يجدد عقد كارلو بينسوليو للموسم العاشر",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "يوفنتوس",
+      "بينسوليو",
+      "تجديد"
+    ]
+  },
+  {
+    "question": "هل جدد بايرن ميونيخ عقد أوباميكانو؟",
+    "reference": "بايرن ميونيخ يعلن تجديد عقد أوباميكانو",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "بايرن ميونيخ",
+      "أوباميكانو",
+      "تجديد"
+    ]
+  },
+  {
+    "question": "هل ضم باريس إيموبيلي؟",
+    "reference": "باريس يقترب من التعاقد مع إيموبيلي حسب رومانو",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "باريس",
+      "إيموبيلي",
+      "رومانو"
+    ]
+  },
+  {
+    "question": "هل يستهدف اتحاد جدة كامافينجا؟",
+    "reference": "اتحاد جدة يستهدف ضم كامافينجا من ريال مدريد",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "اتحاد جدة",
+      "كامافينجا",
+      "ريال مدريد"
+    ]
+  },
+  {
+    "question": "هل ضم فاركو محمد جابر؟",
+    "reference": "فاركو يتعاقد مع محمد جابر لاعب حرس الحدود السابق",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "فاركو",
+      "محمد جابر",
+      "حرس الحدود"
+    ]
+  },
+  {
+    "question": "هل ضم الاتحاد السكندري مابولولو؟",
+    "reference": "الاتحاد السكندري يضم مابولولو هداف الدوري",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "الاتحاد السكندري",
+      "مابولولو",
+      "هداف"
+    ]
+  },
+  {
+    "question": "هل تعاقد الإفريقي مع كهربا؟",
+    "reference": "الإفريقي رفض التعاقد مع كهربا رغم راتبه الضئيل",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "الإفريقي",
+      "كهربا",
+      "راتب"
+    ]
+  },
+  {
+    "question": "هل ضم الخور ياسر حمد؟",
+    "reference": "الخور يتعاقد مع ياسر حمد للمرة الثالثة في قطر",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "الخور",
+      "ياسر حمد",
+      "قطر"
+    ]
+  },
+  {
+    "question": "هل وصل جيمس رودريجز للدوري الأمريكي؟",
+    "reference": "جيمس رودريجز يقترب من الدوري الأمريكي",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "جيمس رودريجز",
+      "الدوري الأمريكي"
+    ]
+  },
+  {
+    "question": "هل توصل الهلال لاتفاق مع رين؟",
+    "reference": "الهلال يتوصل لاتفاق مع رين من أجل ضم مهاجمه",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "الهلال",
+      "رين",
+      "مهاجم"
+    ]
+  },
+  {
+    "question": "هل عاد عزمي غومة إلى فاركو؟",
+    "reference": "عزمي غومة يعود إلى فاركو في صفقة انتقال حر",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "عزمي غومة",
+      "فاركو",
+      "حر"
+    ]
+  },
+  {
+    "question": "هل سيرحل جريزمان عن أتلتيكو؟",
+    "reference": "ماتيو أليماني يحسم موقف جريزمان من الرحيل عن أتلتيكو مدريد",
+    "intent": "transfer_news",
+    "difficulty": "hard",
+    "keywords": [
+      "جريزمان",
+      "أتلتيكو مدريد",
+      "الرحيل"
+    ]
+  },
+  {
+    "question": "هل تعاقد الأهلي بنغازي مع لاعب كاميروني؟",
+    "reference": "الأهلي بنغازي يضم الأفعى السوداء لويس ميكيسوني",
+    "intent": "transfer_news",
+    "difficulty": "hard",
+    "keywords": [
+      "الأهلي بنغازي",
+      "ميكيسوني"
+    ]
+  },
+  {
+    "question": "هل تأهل الترجي لربع نهائي إفريقيا؟",
+    "reference": "الترجي يضمن التأهل بالفوز على بترو أتلتيكو",
+    "intent": "match_result",
+    "difficulty": "medium",
+    "keywords": [
+      "الترجي",
+      "بترو أتلتيكو",
+      "تأهل"
+    ]
+  },
+  {
+    "question": "هل أقيل الركراكي من تدريب المغرب؟",
+    "reference": "الركراكي لم يعد مدربا لمنتخب المغرب ووهبي بدلا منه",
+    "intent": "transfer_news",
+    "difficulty": "medium",
+    "keywords": [
+      "الركراكي",
+      "المغرب",
+      "وهبي"
+    ]
+  },
+  {
+    "question": "هل اهتم بيراميدز بضم فاخوري؟",
+    "reference": "بيراميدز اهتم بضم فاخوري لاعب الأردن",
+    "intent": "transfer_news",
+    "difficulty": "hard",
+    "keywords": [
+      "بيراميدز",
+      "فاخوري",
+      "الأردن"
+    ]
+  },
+  {
+    "question": "ما تشكيل بيراميدز ضد الجونة؟",
+    "reference": "تشكيل بيراميدز يشهد الظهور الأول لـ حامد حمدان ضد الجونة",
+    "intent": "lineup",
+    "difficulty": "easy",
+    "keywords": [
+      "بيراميدز",
+      "حامد حمدان",
+      "الجونة"
+    ]
+  },
+  {
+    "question": "ما تشكيل الزمالك ضد الاتحاد السكندري؟",
+    "reference": "تشكيل الزمالك يضم المهدي سليمان في حراسة المرمى وبانزا أساسي ضد الاتحاد السكندري",
+    "intent": "lineup",
+    "difficulty": "easy",
+    "keywords": [
+      "الزمالك",
+      "المهدي سليمان",
+      "بانزا",
+      "الاتحاد السكندري"
+    ]
+  },
+  {
+    "question": "ما تشكيل أوتوهو أمام الزمالك؟",
+    "reference": "تشكيل أوتوهو يضم ديالو في قيادة الهجوم أمام الزمالك",
+    "intent": "lineup",
+    "difficulty": "medium",
+    "keywords": [
+      "أوتوهو",
+      "ديالو",
+      "الزمالك"
+    ]
+  },
+  {
+    "question": "ما تشكيل ليفربول أمام بورنموث؟",
+    "reference": "تشكيل ليفربول يضم صلاح أساسيا أمام بورنموث",
+    "intent": "lineup",
+    "difficulty": "easy",
+    "keywords": [
+      "ليفربول",
+      "صلاح",
+      "بورنموث",
+      "أساسي"
+    ]
+  },
+  {
+    "question": "ما تشكيل أرسنال ضد برايتون؟",
+    "reference": "تشكيل أرسنال يشهد تبديلا وحيدا من أرتيتا أمام برايتون مع ساكا",
+    "intent": "lineup",
+    "difficulty": "medium",
+    "keywords": [
+      "أرسنال",
+      "أرتيتا",
+      "ساكا",
+      "برايتون"
+    ]
+  },
+  {
+    "question": "ما تشكيل سموحة أمام الأهلي؟",
+    "reference": "تشكيل سموحة يضم عبده يحيى في قيادة الهجوم أمام الأهلي",
+    "intent": "lineup",
+    "difficulty": "medium",
+    "keywords": [
+      "سموحة",
+      "عبده يحيى",
+      "الأهلي"
+    ]
+  },
+  {
+    "question": "ما تشكيل برشلونة ضد بلباو؟",
+    "reference": "تشكيل برشلونة يضم راشفورد أساسيا أمام بلباو",
+    "intent": "lineup",
+    "difficulty": "medium",
+    "keywords": [
+      "برشلونة",
+      "راشفورد",
+      "بلباو"
+    ]
+  },
+  {
+    "question": "ما تشكيل المصري ضد الزمالك في الكونفدرالية؟",
+    "reference": "تشكيل المصري يضم الثلاثي الجديد أساسيا ضد الزمالك في الكونفدرالية",
+    "intent": "lineup",
+    "difficulty": "medium",
+    "keywords": [
+      "المصري",
+      "الزمالك",
+      "الكونفدرالية"
+    ]
+  },
+  {
+    "question": "ما تشكيل بتروجت أمام الزمالك؟",
+    "reference": "تشكيل بتروجت يضم ثلاثيا هجوميا أمام الزمالك وتوفيق محمد أساسي",
+    "intent": "lineup",
+    "difficulty": "medium",
+    "keywords": [
+      "بتروجت",
+      "الزمالك",
+      "توفيق محمد"
+    ]
+  },
+  {
+    "question": "ما تشكيل مانشستر سيتي ضد نيوكاسل؟",
+    "reference": "تشكيل مانشستر سيتي يضم مرموش في قيادة الهجوم أمام نيوكاسل في كأس إنجلترا",
+    "intent": "lineup",
+    "difficulty": "medium",
+    "keywords": [
+      "مانشستر سيتي",
+      "مرموش",
+      "نيوكاسل",
+      "كأس إنجلترا"
+    ]
+  },
+  {
+    "question": "مين بيلعب أساسي في تشكيل الأهلي ضد سموحة؟",
+    "reference": "تشكيل الأهلي يشهد عودة شوبير لحراسة المرمى أمام سموحة",
+    "intent": "lineup",
+    "difficulty": "medium",
+    "keywords": [
+      "الأهلي",
+      "شوبير",
+      "سموحة"
+    ]
+  },
+  {
+    "question": "ما تشكيل برشلونة أمام إلتشي؟",
+    "reference": "تشكيل برشلونة يضم توريس في قيادة الهجوم ضد إلتشي",
+    "intent": "lineup",
+    "difficulty": "medium",
+    "keywords": [
+      "برشلونة",
+      "توريس",
+      "إلتشي"
+    ]
+  },
+  {
+    "question": "ما تشكيل الزمالك أمام زيسكو في إفريقيا؟",
+    "reference": "تشكيل الزمالك يضم ناصر منسي والمهدي سليمان أساسيين ضد زيسكو",
+    "intent": "lineup",
+    "difficulty": "medium",
+    "keywords": [
+      "الزمالك",
+      "ناصر منسي",
+      "زيسكو"
+    ]
+  },
+  {
+    "question": "هل عاد محمد صبحي لتشكيل الزمالك؟",
+    "reference": "تشكيل الزمالك يشهد عودة محمد صبحي أمام أوتوهو",
+    "intent": "lineup",
+    "difficulty": "medium",
+    "keywords": [
+      "الزمالك",
+      "محمد صبحي",
+      "أوتوهو"
+    ]
+  },
+  {
+    "question": "متى مباراة حرس الحدود ضد بيراميدز؟",
+    "reference": "موعد مباراة حرس الحدود ضد بيراميدز في الدوري المصري",
+    "intent": "general_football",
+    "difficulty": "medium",
+    "keywords": [
+      "حرس الحدود",
+      "بيراميدز",
+      "موعد"
+    ]
+  },
+  {
+    "question": "من حكم مباراة الأهلي والجونة؟",
+    "reference": "أمين عمر حكما لمباراة الأهلي والجونة في الدوري",
+    "intent": "general_football",
+    "difficulty": "medium",
+    "keywords": [
+      "الأهلي",
+      "الجونة",
+      "حكم",
+      "أمين عمر"
+    ]
+  },
+  {
+    "question": "ما أخبار قائمة منتخب مصر تحت 20؟",
+    "reference": "لاعب ليفربول على رأس قائمة منتخب مصر تحت 20 عاما",
+    "intent": "general_football",
+    "difficulty": "medium",
+    "keywords": [
+      "منتخب مصر",
+      "تحت 20",
+      "ليفربول"
+    ]
+  },
+  {
+    "question": "ما هي تصفيات كأس إفريقيا للناشئين؟",
+    "reference": "تحضيرات منتخب مصر تحت 20 لتصفيات كأس إفريقيا",
+    "intent": "general_football",
+    "difficulty": "medium",
+    "keywords": [
+      "تصفيات",
+      "كأس إفريقيا",
+      "تحت 20"
+    ]
+  },
+  {
+    "question": "هل تأجلت مباريات دور الـ16 في دوري الأبطال الآسيوي؟",
+    "reference": "الاتحاد الآسيوي يؤجل حسم مصير مباريات دور الـ16 في دوري الأبطال",
+    "intent": "general_football",
+    "difficulty": "medium",
+    "keywords": [
+      "الاتحاد الآسيوي",
+      "دور الـ16",
+      "تأجيل"
+    ]
+  },
+  {
+    "question": "ما عقوبة بريستياني بسبب العنصرية؟",
+    "reference": "إيقاف بريستياني مؤقتا بسبب العنصرية ضد فينيسيوس",
+    "intent": "player_info",
+    "difficulty": "hard",
+    "keywords": [
+      "بريستياني",
+      "فينيسيوس",
+      "إيقاف",
+      "عنصرية"
+    ]
+  },
+  {
+    "question": "ما أحداث نهائي أمم إفريقيا الأخيرة؟",
+    "reference": "المحكمة تعلن قراراتها بشأن أحداث نهائي أمم إفريقيا قد تصل إلى سنة سجن",
+    "intent": "general_football",
+    "difficulty": "hard",
+    "keywords": [
+      "نهائي أمم إفريقيا",
+      "المحكمة",
+      "سجن"
+    ]
+  },
+  {
+    "question": "متى تطرح تذاكر الأهلي ضد يانج أفريكانز؟",
+    "reference": "طرح تذاكر مواجهة الأهلي ضد يانج أفريكانز بدوري الأبطال",
+    "intent": "general_football",
+    "difficulty": "medium",
+    "keywords": [
+      "الأهلي",
+      "يانج أفريكانز",
+      "تذاكر"
+    ]
+  },
+  {
+    "question": "ما موقف مبابي من مباراة مانشستر سيتي؟",
+    "reference": "تقرير يكشف موقف مبابي من المشاركة أمام مانشستر سيتي",
+    "intent": "player_info",
+    "difficulty": "hard",
+    "keywords": [
+      "مبابي",
+      "مانشستر سيتي"
+    ]
+  },
+  {
+    "question": "ما قرارات كاف بشأن نهائي المغرب والسنغال؟",
+    "reference": "إقالة رئيس الهيئة القضائية في كاف بسبب نهائي المغرب والسنغال",
+    "intent": "general_football",
+    "difficulty": "hard",
+    "keywords": [
+      "كاف",
+      "المغرب",
+      "السنغال",
+      "إقالة"
+    ]
+  },
+  {
+    "question": "ما قرارات اجتماع المكتب التنفيذي بكاف؟",
+    "reference": "في الجول يكشف تفاصيل اجتماع المكتب التنفيذي بكاف عن دوري وكأس الأمم",
+    "intent": "general_football",
+    "difficulty": "hard",
+    "keywords": [
+      "كاف",
+      "المكتب التنفيذي",
+      "دوري الأمم"
+    ]
+  },
+  {
+    "question": "ما عاصمة فرنسا؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "اشرح لي نظرية النسبية لأينشتاين",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "كم سعر الذهب اليوم في مصر؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "ما هو علاج نزلات البرد؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "كم تبعد الشمس عن الأرض؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "ما أفضل مطعم في القاهرة؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "كم سعر سهم آبل اليوم؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "اكتب لي قصيدة عن الصداقة",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "متى تأسست جامعة الأزهر؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "ما هو علاج السكري؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "من فاز ببطولة ويمبلدون 2010؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "كم عدد مباريات كرة السلة في الـ NBA؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "ما نتيجة مباراة كرة الطائرة بين مصر والسعودية؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "general_football",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "هل انتقل لاعب اسمه زيكونتزكي إلى ميلان؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "transfer_news",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
+  },
+  {
+    "question": "تشكيل نادي زاكلوبيش الفرنسي ضد ماركلوف؟",
+    "reference": "لا تتوفر لديّ هذه المعلومة حالياً",
+    "intent": "lineup",
+    "difficulty": "easy",
+    "keywords": [],
+    "expected_refusal": true
   }
 ]

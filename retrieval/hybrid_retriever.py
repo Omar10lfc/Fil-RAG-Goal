@@ -1,18 +1,24 @@
 """
 FilGoalBot Hybrid Retriever
 ============================
-Combines BM25 (sparse) + FAISS (dense) with Reciprocal Rank Fusion.
+BM25 (sparse) + FAISS (dense) fused with weighted RRF, with optional:
+  - Arabic clitic stripping in the BM25 tokenizer
+  - Date-decay recency boost (configurable half-life)
+  - Pool expansion when metadata filters are active
 
 Dependencies:
     pip install rank-bm25
 """
 
-import re
 import json
 import logging
-import numpy as np
-from pathlib import Path
+import math
+import re
 from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+import numpy as np
 from rank_bm25 import BM25Okapi
 
 log = logging.getLogger("retriever")
@@ -22,15 +28,31 @@ INDEX_FILE   = FAISS_DIR / "index.bin"
 META_FILE    = FAISS_DIR / "metadata.jsonl"
 CONFIG_FILE  = FAISS_DIR / "config.json"
 
-K           = 60   # RRF constant
-TOP_K_BM25  = 50
-TOP_K_DENSE = 50
-TOP_K_FINAL = 8
+# RRF parameters
+RRF_K         = 60
+DENSE_WEIGHT  = 0.7   # dense beat sparse on every per-intent metric in the ablation
+SPARSE_WEIGHT = 0.3
+
+# Recency boost — football news is time-sensitive. Score multiplier:
+#   recent (today)        → ~1.10
+#   1 month old           → ~1.05
+#   1 year old            → ~1.00 (no boost)
+RECENCY_HALF_LIFE_DAYS = 30
+RECENCY_MAX_BOOST      = 0.10
+
+TOP_K_BM25       = 50
+TOP_K_DENSE      = 50
+TOP_K_FINAL      = 8
+FILTERED_POOL_X  = 4  # when filters are active, pull this many times more candidates
 
 
-# ─── Arabic normalisation (mirrors pipeline.py) ───────────────────────────────
+# ─── Arabic normalisation ────────────────────────────────────────────────────
 
-_HARAKAT = re.compile(r'[\u064B-\u065F\u0670\u0640]')
+_HARAKAT = re.compile(r'[ً-ٰٟـ]')
+# Arabic clitics commonly attached to the next word: و ف ب ل ك + ال
+# Stripping these before BM25 reduces vocab inflation and improves IDF.
+_CLITICS = re.compile(r'^(?:و|ف|ب|ل|ك)?(?:ال)?')
+
 
 def _normalize_ar(text: str) -> str:
     text = _HARAKAT.sub('', text)
@@ -38,12 +60,46 @@ def _normalize_ar(text: str) -> str:
         text = re.sub(frm, to, text)
     return text
 
+
+def _strip_clitics(token: str) -> str:
+    """Remove leading w/f/b/l/k + optional al- definite article. Defensive: if
+    stripping leaves a stub of <2 chars, keep the original token."""
+    stripped = _CLITICS.sub('', token, count=1)
+    return stripped if len(stripped) >= 2 else token
+
+
 def _tokenize(text: str) -> list[str]:
-    """Normalise + split, drop tokens shorter than 2 chars (prepositions etc.)."""
-    return [t for t in _normalize_ar(text).split() if len(t) >= 2]
+    """Normalise → split → strip clitics → drop short stop-tokens."""
+    tokens = []
+    for raw in _normalize_ar(text).split():
+        if len(raw) < 2:
+            continue
+        tokens.append(_strip_clitics(raw))
+    return tokens
 
 
-# ─── Hybrid Retriever ─────────────────────────────────────────────────────────
+# ─── Recency helper ──────────────────────────────────────────────────────────
+
+def _recency_multiplier(pub_date: str, now: datetime | None = None) -> float:
+    """Returns a multiplier in [1.0, 1 + RECENCY_MAX_BOOST] based on age.
+
+    Uses an exponential decay so today is fully boosted and old articles are
+    barely boosted. Returns 1.0 if pub_date is missing or unparseable."""
+    if not pub_date:
+        return 1.0
+    try:
+        published = datetime.fromisoformat(pub_date[:10]).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return 1.0
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    age_days = max(0, (now - published).days)
+    decay = math.exp(-age_days / RECENCY_HALF_LIFE_DAYS)
+    return 1.0 + RECENCY_MAX_BOOST * decay
+
+
+# ─── Hybrid Retriever ────────────────────────────────────────────────────────
 
 class FilGoalRetriever:
     def __init__(self):
@@ -59,7 +115,6 @@ class FilGoalRetriever:
         import faiss
         from sentence_transformers import SentenceTransformer
 
-        # Load config
         config = json.loads(CONFIG_FILE.read_text())
         self.dim = config['dim']
         model_name = config['model_name']
@@ -76,8 +131,6 @@ class FilGoalRetriever:
         self.texts = [m['text'] for m in self.metadata]
         log.info(f"  {len(self.metadata)} chunks loaded")
 
-        # BM25Okapi receives a list of token lists — we normalise + tokenize here
-        # so Arabic alef variants, tashkeel etc. are consistent with query tokenisation
         log.info("Building BM25Okapi index...")
         tokenized_corpus = [_tokenize(t) for t in self.texts]
         self.bm25 = BM25Okapi(tokenized_corpus)
@@ -89,7 +142,7 @@ class FilGoalRetriever:
         log.info("✅ Retriever ready")
 
     def _dense_search(self, query: str, top_k: int = TOP_K_DENSE) -> list[tuple[int, float]]:
-        if self.index is None or self.model is None:   # ablation: dense disabled
+        if self.index is None or self.model is None:    # ablation: dense disabled
             return []
         q_emb = self.model.encode(
             ["query: " + query],
@@ -100,10 +153,10 @@ class FilGoalRetriever:
         return list(zip(I[0].tolist(), D[0].tolist()))
 
     def _sparse_search(self, query: str, top_k: int = TOP_K_BM25) -> list[tuple[int, float]]:
-        if self.bm25 is None:                          # ablation: BM25 disabled
+        if self.bm25 is None:                           # ablation: BM25 disabled
             return []
-        query_tokens = _tokenize(_normalize_ar(query))
-        scores = self.bm25.get_scores(query_tokens)          # NumPy array, all docs
+        query_tokens = _tokenize(query)
+        scores = self.bm25.get_scores(query_tokens)
         top_indices = np.argsort(scores)[::-1][:top_k]
         return [(int(i), float(scores[i])) for i in top_indices]
 
@@ -112,11 +165,13 @@ class FilGoalRetriever:
         bm25_results:  list[tuple[int, float]],
         dense_results: list[tuple[int, float]],
     ) -> list[tuple[int, float]]:
+        """Weighted RRF — dense outperforms sparse in the ablation, so it
+        carries more weight in the fused score."""
         scores: dict[int, float] = defaultdict(float)
         for rank, (idx, _) in enumerate(bm25_results):
-            scores[idx] += 1.0 / (K + rank + 1)
+            scores[idx] += SPARSE_WEIGHT * (1.0 / (RRF_K + rank + 1))
         for rank, (idx, _) in enumerate(dense_results):
-            scores[idx] += 1.0 / (K + rank + 1)
+            scores[idx] += DENSE_WEIGHT * (1.0 / (RRF_K + rank + 1))
         return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
     def retrieve(
@@ -127,19 +182,31 @@ class FilGoalRetriever:
         filter_league: str | None = None,
         filter_team:   str | None = None,
     ) -> list[dict]:
-        """
-        Hybrid search with optional metadata filters.
-        Returns top_k chunk dicts, deduplicated by article_id.
-        """
-        bm25_results  = self._sparse_search(query, top_k=TOP_K_BM25)
-        dense_results = self._dense_search(query,  top_k=TOP_K_DENSE)
+        """Hybrid search with optional metadata filters and recency boost.
+        Returns top_k chunk dicts, deduplicated by article_id."""
+        # When filters are active, pull a wider initial pool so filtering
+        # doesn't starve top_k.
+        filters_active = any([filter_type, filter_league, filter_team])
+        bm25_n  = TOP_K_BM25  * (FILTERED_POOL_X if filters_active else 1)
+        dense_n = TOP_K_DENSE * (FILTERED_POOL_X if filters_active else 1)
+
+        bm25_results  = self._sparse_search(query, top_k=bm25_n)
+        dense_results = self._dense_search(query,  top_k=dense_n)
         fused         = self._rrf_fuse(bm25_results, dense_results)
 
-        results = []
-        seen_article_ids = set()
+        # Apply recency multiplier and re-sort.
+        now = datetime.now(timezone.utc)
+        boosted: list[tuple[int, float]] = []
         for idx, score in fused:
             if idx >= len(self.metadata):
                 continue
+            mult = _recency_multiplier(self.metadata[idx].get("pub_date", ""), now=now)
+            boosted.append((idx, score * mult))
+        boosted.sort(key=lambda x: x[1], reverse=True)
+
+        results: list[dict] = []
+        seen_article_ids: set[str] = set()
+        for idx, score in boosted:
             chunk = self.metadata[idx]
 
             if filter_type   and chunk.get('article_type') != filter_type:
@@ -161,10 +228,8 @@ class FilGoalRetriever:
         return results
 
     def retrieve_for_rag(self, query: str, top_k: int = TOP_K_FINAL, **kwargs) -> str:
-        """
-        Returns a single formatted context string ready for an LLM prompt.
-        Each chunk: [N] <title> (<date>) — <league>\n<body_clean>
-        """
+        """Single formatted context string ready for an LLM prompt.
+        Each chunk: [N] <title> (<date>) — <league>\n<body_clean>"""
         hits = self.retrieve(query, top_k=top_k, **kwargs)
         parts = []
         for i, h in enumerate(hits, 1):
@@ -177,7 +242,7 @@ class FilGoalRetriever:
         return "\n\n---\n\n".join(parts)
 
 
-# ─── Smoke-test (BM25 only, no GPU needed) ───────────────────────────────────
+# ─── BM25-only smoke test ────────────────────────────────────────────────────
 
 def build_bm25_only():
     """Verify BM25Okapi locally without loading FAISS or the embedding model."""
@@ -201,7 +266,7 @@ def build_bm25_only():
         "صلاح يسجل هدفاً",
     ]
     for q in test_queries:
-        query_tokens = _tokenize(_normalize_ar(q))
+        query_tokens = _tokenize(q)
         scores       = bm25.get_scores(query_tokens)
         top_indices  = np.argsort(scores)[::-1][:3]
         log.info(f"\nQuery: {q}")

@@ -31,6 +31,9 @@ C:/HuggingFaceCache/
 # Evaluation output (generated, not source)
 evaluation/report.json
 
+# Disk-based LLM response cache (qa_engine/cache.py)
+.cache/
+
 # IDE
 .vscode/
 .idea/
