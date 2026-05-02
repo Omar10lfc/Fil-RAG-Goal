@@ -1,6 +1,6 @@
-# FilGoalBot
+# Fil-RAG-Goal
 
-An Arabic football Q&A bot built on a hybrid RAG pipeline over scraped FilGoal.com articles. Answers questions in Egyptian Arabic and Modern Standard Arabic about match results, lineups, transfers, player news, and team news — with citations and a strict refusal policy when the answer isn't in the corpus.
+An Arabic football Q&A Rag System built on a hybrid RAG pipeline over scraped FilGoal.com articles. Answers questions in Egyptian Arabic and Modern Standard Arabic about match results, lineups, transfers, player news, and team news — with citations and a strict refusal policy when the answer isn't in the corpus.
 
 ---
 
