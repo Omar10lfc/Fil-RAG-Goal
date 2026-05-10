@@ -44,6 +44,12 @@ FILTER_MAP = {
 
 
 def _model_for(intent: str) -> str:
+    # Demo / quota-pressure escape hatch: when FILGOAL_FORCE_SMALL_MODEL=1, route
+    # every intent to the 8B model. The 70B has a 100k tokens/day ceiling on the
+    # Groq free tier; the 8B has its own (much larger) quota. Useful for live
+    # demos where the 70B may already be exhausted.
+    if os.getenv("FILGOAL_FORCE_SMALL_MODEL", "").strip() in ("1", "true", "yes"):
+        return GROQ_MODEL_SMALL
     return GROQ_MODEL_SMALL if intent in EXTRACTIVE_INTENTS else GROQ_MODEL_BIG
 
 

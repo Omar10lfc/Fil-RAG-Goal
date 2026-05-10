@@ -45,12 +45,21 @@ python -m frontend.app
 ### Run the evaluation
 
 ```bash
-# Retrieval-only ablation (fast, no Groq calls)
-python -m evaluation.evaluate
+# Retrieval ablation only — fast, no Groq calls. ~10s total.
+# Compares BM25, Dense, and Hybrid RRF using sharp metrics (Kw@1, R@3, MRR).
+python -m evaluation.evaluate --save-report
 
-# Full end-to-end RAG evaluation (uses Groq tokens; cache makes re-runs free)
+# Full end-to-end RAG evaluation — adds intent routing + LLM generation on
+# top of retrieval. Uses Groq tokens; cache makes re-runs free.
 python -m evaluation.evaluate --rag --save-report
+
+# Inspect the report afterwards
+cat evaluation/report.json
 ```
+
+To compare retrievers: open the printed ablation table or check the saved
+JSON. **Pick the winner by `MRR` or `Kw@1`, not `Kw-Hit`** — the latter
+saturates around 0.70 and doesn't differentiate retrievers.
 
 ---
 
@@ -75,30 +84,89 @@ FilGoalBot/
 
 The eval suite measures two things:
 
-1. **Retrieval ablation** — BM25 only vs Dense only vs Hybrid RRF, on the same 176-question set, with ROUGE-1, keyword hit rate, MRR, and per-intent breakdown. Fast (no Groq calls, ~15s).
+1. **Retrieval ablation** — BM25, Dense, Hybrid RRF, and Hybrid + cross-encoder rerank on the same 176-question set. Fast (no Groq calls, ~10s without rerank, ~5min with).
 2. **End-to-end RAG** — full pipeline including intent routing, retrieval, generation. Reports embed-similarity (over content answers only), keyword hit, intent accuracy, and refusal accuracy.
 
 The metrics are deliberately split so failures can be attributed: retrieval issues show up in the ablation, generation/routing issues show up in the end-to-end run.
 
-### Latest results (n=103 scored, cache-warm)
+### Retrieval metrics — sharp vs coarse
 
-| Metric                 | Value      |
-| ---------------------- | ---------- |
-| Embed-Sim (content)    | **0.853**  |
-| Keyword Hit Rate       | 0.846      |
-| Intent Accuracy        | 0.951      |
-| Refusal Accuracy       | 1.000 (n=13) |
-| ROUGE-1                | 0.305      |
+The original `Kw-Hit` metric ("any expected keyword in any of top-5 chunks") saturates fast: with ~4KB of combined retrieved text per query, the metric is satisfied even by mediocre retrievers. Adding two sharper metrics fixes this:
 
-Per-intent (showing intents that fully scored):
+- **Kw@1** — was the *first* retrieved chunk relevant? Surfaces ranking quality.
+- **R@3** — fraction of expected keywords found across the top-3 chunks (not just any/none). Surfaces coverage.
 
-| Intent          | Kw-Hit | Intent-Acc | N  |
-| --------------- | ------ | ---------- | -- |
-| lineup          | 0.851  | 1.000      | 19 |
-| match_result    | 0.780  | 1.000      | 31 |
-| player_info     | 0.911  | 1.000      | 15 |
-| team_news       | 0.963  | 1.000      | 9  |
-| transfer_news   | 0.846  | 1.000      | 13 |
+Both are far more sensitive to changes in retriever ordering. Compare the spread on the four retrievers below:
+
+```
+metric        BM25 ↔ Hybrid+rerank   spread
+Kw-Hit        0.695 ↔ 0.713          1.8pp   ← saturated, useless for tuning
+Kw@1          0.682 ↔ 0.756          7.4pp   ← sharp
+R@3           0.680 ↔ 0.705          2.5pp   ← sharp
+MRR           0.719 ↔ 0.768          4.9pp   ← sharp
+```
+
+### Retrieval ablation (n=176)
+
+| Experiment                  | Kw-Hit | Kw@1      | R@3   | MRR       | Latency  |
+| --------------------------- | ------ | --------- | ----- | --------- | -------- |
+| BM25 only (baseline)        | 0.695  | 0.682     | 0.680 | 0.719     | 18 ms    |
+| Dense only (FAISS)          | 0.708  | 0.733     | 0.695 | 0.752     | 75 ms    |
+| **Hybrid BM25+FAISS (RRF)** | 0.704  | **0.756** | 0.691 | **0.768** | 107 ms   |
+
+**Winner by MRR: Hybrid RRF.**
+
+### Cross-encoder reranking — experiment that didn't make the cut
+
+A separate experiment added a multilingual cross-encoder (`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`) reranker on top of the top-20 RRF candidates. Comparison on the same 176-question set:
+
+| Configuration               | Kw-Hit    | Kw@1      | R@3       | MRR       | Latency  |
+| --------------------------- | --------- | --------- | --------- | --------- | -------- |
+| Hybrid RRF (current)        | 0.704     | **0.756** | 0.691     | **0.768** | **107 ms**   |
+| Hybrid RRF + Cross-encoder  | **0.713** | 0.733     | **0.705** | 0.759     | 4964 ms  |
+
+**The reranker did not improve top-of-list quality on this corpus**, despite the 46× latency cost. Kw@1 dropped from 0.756 to 0.733, MRR from 0.768 to 0.759. R@3 and Kw-Hit improved marginally but those measure coverage rather than ordering. Likely reasons:
+
+1. **Multilingual cross-encoder ≠ Arabic-news-optimal.** `mmarco-mMiniLMv2` is trained on generic multilingual passage retrieval. The bi-encoder fusion already captures most of the signal on this corpus.
+2. **Recency boost is lost on rerank.** Cross-encoder scores override the RRF+recency composite — for time-sensitive sports queries, that hurts more than it helps.
+3. **CPU inference is prohibitive.** ~25ms per (query, doc) × 20 candidates ≈ 500ms+ per query. Production-viable only on GPU.
+
+The reranker code was removed from the codebase after this evaluation. The result is documented here as a useful negative finding: further retrieval gains likely need domain-specific reranker fine-tuning, not off-the-shelf models.
+
+### End-to-end RAG results (n=149 scored, cache-warm)
+
+| Metric                 | Value             |
+| ---------------------- | ----------------- |
+| Embed-Sim (content)    | **0.869** (n=136) |
+| Keyword Hit Rate       | 0.853             |
+| Intent Accuracy        | 0.966             |
+| Refusal Accuracy       | 1.000 (n=13)      |
+| ROUGE-1                | 0.318             |
+| Avg Latency            | **92 ms**         |
+
+Per-intent — all five content intents at 1.000 routing accuracy:
+
+| Intent           | Kw-Hit | Intent-Acc | N  |
+| ---------------- | ------ | ---------- | -- |
+| player_info      | 0.913  | 1.000      | 23 |
+| team_news        | 0.871  | 1.000      | 31 |
+| transfer_news    | 0.869  | 1.000      | 28 |
+| general_football | 0.853  | 0.706      | 17 |
+| lineup           | 0.851  | 1.000      | 19 |
+| match_result     | 0.780  | 1.000      | 31 |
+
+`general_football` intent accuracy of 0.706 is the only sub-1.000 result — it
+reflects the deliberately-kept borderline cases ("كاريك مدرب منتخب إيه؟",
+"إيه اللي بيحصل في الدوري الإنجليزي") where either intent is defensible.
+
+Latency dropped from ~3000 ms in the partial-cache run to **92 ms** here,
+because almost every scored case is now a cache hit. That 92 ms is the real
+cache-warm steady-state — production-grade.
+
+Note: 27 cases (out of 176) hit the Groq daily-token ceiling on the 70B model
+during this run and were correctly excluded by the metric guard. Each
+subsequent eval pass fills more cache entries and shrinks the failure set —
+the next daily reset would close the gap to `n=176/176`.
 
 ---
 
@@ -113,7 +181,8 @@ This section documents the iterative quality and infrastructure improvements mad
 | Baseline (60-case set)       | 0.717 (artifact)   | 0.700      | 1.000       | Refusal cases included as 0.0 in average |
 | After classifier overhaul    | 0.725 (artifact)   | 0.967      | 1.000       | Pattern + label fixes |
 | After test-set expansion     | 0.705 (artifact)   | 0.951      | 1.000       | 60 → 176 cases — harder probe |
-| After metric fix (final)     | **0.853 (clean)**  | 0.951      | 1.000       | Refusal cases excluded from sim avg |
+| After metric fix             | 0.853 (clean)      | 0.951      | 1.000       | Refusal cases excluded from sim avg |
+| Cache-warm re-run (final)    | **0.869** (n=136)  | **0.966**  | 1.000       | n=149/176 scored, latency 92 ms |
 
 The Embed-Sim jump from 0.705 to 0.853 is *not* a quality change — it's the same underlying answers, scored honestly. The artifact-suppressed version was deflating per-intent numbers in proportion to the share of refusal cases in each bucket.
 

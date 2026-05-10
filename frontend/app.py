@@ -73,6 +73,9 @@ def check_health(api_url: str) -> bool:
 # ── Formatting helpers ────────────────────────────────────────────────────────
 
 def format_sources(sources: list) -> str:
+    """Render sources as HTML cards. Uses HTML <a> tags (not markdown link
+    syntax) because markdown links inside an HTML <div> aren't parsed by
+    Gradio's renderer."""
     if not sources:
         return ""
     lines = []
@@ -89,12 +92,10 @@ def format_sources(sources: list) -> str:
             meta_parts.append(league)
         meta = " · ".join(meta_parts)
 
-        if url:
-            lines.append(f"**{i}.** [{title}]({url})  \n*{meta}*")
-        else:
-            lines.append(f"**{i}.** {title}  \n*{meta}*")
+        body = f'<a href="{url}" target="_blank" rel="noopener" class="source-link">{title}</a>' if url else title
+        lines.append(f'<div class="source-card"><b>{i}.</b> {body}<br><i>{meta}</i></div>')
 
-    return "\n\n".join(lines)
+    return "\n".join(lines)
 
 
 # ── Main chat function ────────────────────────────────────────────────────────
@@ -133,96 +134,260 @@ def clear_chat():
 # ── Build Gradio UI ───────────────────────────────────────────────────────────
 
 def build_ui(api_url: str):
-    # Custom CSS for RTL Arabic support and styling
+    # Theme inspired by filgoal.com — dark navy background with orange/gold accents.
+    # CSS variables drive both light and dark modes; the toggle button at the top
+    # flips a [data-theme] attribute on <html>, and the rest cascades from there.
     css = """
-    /* RTL support */
+    /* ── Theme tokens ─────────────────────────────────────────────────── */
+    :root, html[data-theme="dark"] {
+        --bg:           #0f1115;
+        --bg-elevated:  #181b22;
+        --panel:        #1e2129;
+        --panel-strong: #252834;
+        --border:       #2a2e3a;
+        --text:         #f1f3f7;
+        --text-muted:   #9aa0aa;
+        --accent:       #f5a623;
+        --accent-hover: #ffb84d;
+        --accent-soft:  rgba(245, 166, 35, 0.12);
+        --user-bubble:  #2a2e3a;
+        --bot-bubble:   #1e2129;
+        --shadow:       0 4px 12px rgba(0,0,0,0.3);
+        /* Override Gradio's internal theme tokens too — the Chatbot, gr.Group,
+           and gr.Accordion read these, not our --bg-* vars. */
+        --body-background-fill:       #0f1115 !important;
+        --background-fill-primary:    #181b22 !important;
+        --background-fill-secondary:  #1e2129 !important;
+        --block-background-fill:      #1e2129 !important;
+        --panel-background-fill:      #1e2129 !important;
+        --input-background-fill:      #181b22 !important;
+        --block-border-color:         #2a2e3a !important;
+        --border-color-primary:       #2a2e3a !important;
+        --color-text-primary:         #f1f3f7 !important;
+        --body-text-color:            #f1f3f7 !important;
+    }
+    html[data-theme="light"] {
+        --bg:           #f5f6fa;
+        --bg-elevated:  #ffffff;
+        --panel:        #ffffff;
+        --panel-strong: #f0f1f5;
+        --border:       #e2e4ea;
+        --text:         #1a1d24;
+        --text-muted:   #5c6370;
+        --accent:       #e6951a;
+        --accent-hover: #c97f12;
+        --accent-soft:  rgba(230, 149, 26, 0.10);
+        --user-bubble:  #f0f1f5;
+        --bot-bubble:   #ffffff;
+        --shadow:       0 2px 8px rgba(0,0,0,0.06);
+        --body-background-fill:       #f5f6fa !important;
+        --background-fill-primary:    #ffffff !important;
+        --background-fill-secondary:  #f0f1f5 !important;
+        --block-background-fill:      #ffffff !important;
+        --panel-background-fill:      #ffffff !important;
+        --input-background-fill:      #ffffff !important;
+        --block-border-color:         #e2e4ea !important;
+        --border-color-primary:       #e2e4ea !important;
+        --color-text-primary:         #1a1d24 !important;
+        --body-text-color:            #1a1d24 !important;
+    }
+    /* Source link styling — accent colour in both themes. */
+    .source-link, .source-link:visited {
+        color: var(--accent); text-decoration: none; font-weight: 600;
+    }
+    .source-link:hover { text-decoration: underline; color: var(--accent-hover); }
+    /* Force text colour on Gradio-managed nested elements (chatbot bubbles,
+       accordion bodies, group panels, inputs, source cards). Without this,
+       light theme leaves white-on-white text. */
+    .gradio-container #chatbot *:not(a),
+    .gradio-container .gr-form *:not(a):not(button),
+    .gradio-container .gr-group *:not(a):not(button),
+    .gradio-container .gr-accordion *:not(a):not(button),
+    .gradio-container .source-card *:not(a),
+    .gradio-container .prose *:not(a),
+    .gradio-container textarea,
+    .gradio-container input {
+        color: var(--text) !important;
+    }
+
+    /* ── Global ───────────────────────────────────────────────────────── */
+    body, gradio-app, .gradio-container {
+        background: var(--bg) !important;
+        color: var(--text) !important;
+        font-family: 'Cairo', 'Segoe UI', 'Noto Naskh Arabic', sans-serif !important;
+    }
+    .gradio-container * {
+        border-color: var(--border) !important;
+    }
+
+    /* ── RTL support ──────────────────────────────────────────────────── */
     .rtl-text, .rtl-text * {
         direction: rtl;
         text-align: right;
-        font-family: 'Segoe UI', 'Cairo', 'Noto Naskh Arabic', sans-serif;
+        font-family: 'Cairo', 'Segoe UI', 'Noto Naskh Arabic', sans-serif;
     }
 
-    /* Chat bubbles */
-    .message.user {
-        direction: rtl;
-        text-align: right;
-    }
-    .message.bot {
-        direction: rtl;
-        text-align: right;
-    }
-
-    /* Header */
+    /* ── Header ───────────────────────────────────────────────────────── */
     .header-box {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 16px;
+        background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--panel) 100%);
+        border-radius: 14px;
+        padding: 28px 24px;
+        margin-bottom: 18px;
         text-align: center;
-        border: 1px solid rgba(255,255,255,0.1);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        position: relative;
+        overflow: hidden;
+    }
+    .header-box::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
+    .header-box h1 {
+        color: var(--text) !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.5px;
+    }
+    .header-box .accent {
+        color: var(--accent);
+    }
+    .header-box p {
+        color: var(--text-muted) !important;
     }
 
-    /* Status indicator */
-    .status-online  { color: #22c55e; font-weight: bold; }
-    .status-offline { color: #ef4444; font-weight: bold; }
+    /* ── Theme toggle ─────────────────────────────────────────────────── */
+    #theme-toggle {
+        background: var(--panel) !important;
+        border: 1px solid var(--border) !important;
+        color: var(--text) !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        padding: 6px 14px !important;
+        min-width: 0 !important;
+    }
+    #theme-toggle:hover {
+        background: var(--accent-soft) !important;
+        border-color: var(--accent) !important;
+    }
 
-    /* Intent badge */
+    /* ── Status pill ──────────────────────────────────────────────────── */
+    .status-online  { color: #4ade80; font-weight: 600; }
+    .status-offline { color: #f87171; font-weight: 600; }
+
+    /* ── Intent badge ─────────────────────────────────────────────────── */
     .intent-badge {
         display: inline-block;
-        background: #0f3460;
-        color: #e2e8f0;
-        border-radius: 20px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: 18px;
         padding: 4px 14px;
         font-size: 13px;
         font-weight: 600;
         direction: rtl;
     }
 
-    /* Source cards */
+    /* ── Source cards ─────────────────────────────────────────────────── */
     .source-card {
-        background: #1e293b;
-        border-left: 3px solid #3b82f6;
+        background: var(--panel-strong);
+        border-right: 3px solid var(--accent);
         border-radius: 6px;
         padding: 10px 14px;
         margin: 6px 0;
         direction: rtl;
+        color: var(--text);
     }
 
-    /* Latency chip */
-    .latency-chip {
-        font-family: monospace;
-        font-size: 12px;
-        color: #94a3b8;
-        direction: ltr;
+    /* ── Chatbot ──────────────────────────────────────────────────────── */
+    #chatbot {
+        background: var(--bg-elevated) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 12px !important;
+    }
+    #chatbot .message-wrap { direction: rtl; }
+    #chatbot .message.user, #chatbot .user {
+        background: var(--user-bubble) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
+    }
+    #chatbot .message.bot, #chatbot .bot {
+        background: var(--bot-bubble) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
     }
 
-    /* Example buttons */
-    .example-btn {
-        direction: rtl;
-        text-align: right;
-    }
-
-    /* Input box */
+    /* ── Input box ────────────────────────────────────────────────────── */
     #query-input textarea {
         direction: rtl;
         text-align: right;
         font-size: 15px;
-        font-family: 'Segoe UI', 'Cairo', sans-serif;
+        font-family: 'Cairo', 'Segoe UI', sans-serif;
+        background: var(--panel) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
+    }
+    #query-input textarea:focus {
+        border-color: var(--accent) !important;
+        box-shadow: 0 0 0 2px var(--accent-soft) !important;
     }
 
-    /* Chatbot messages */
-    #chatbot .message-wrap {
-        direction: rtl;
-    }
-
-    /* Submit button */
+    /* ── Submit button (orange/gold accent — the "اليوم" look) ─────── */
     #submit-btn {
-        background: #0f3460 !important;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%) !important;
+        color: #0f1115 !important;
         border: none !important;
-        font-weight: 600 !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.3px;
+        box-shadow: 0 2px 8px var(--accent-soft);
     }
     #submit-btn:hover {
-        background: #1a4a8a !important;
+        filter: brightness(1.1);
+        transform: translateY(-1px);
+    }
+
+    /* ── Example & secondary buttons ──────────────────────────────────── */
+    .example-btn {
+        direction: rtl;
+        text-align: right;
+        background: var(--panel) !important;
+        color: var(--text) !important;
+        border: 1px solid var(--border) !important;
+    }
+    .example-btn:hover {
+        background: var(--accent-soft) !important;
+        border-color: var(--accent) !important;
+    }
+
+    /* ── Group/accordion panels ───────────────────────────────────────── */
+    /* Gradio 4.x renders gr.Group/gr.Accordion/gr.Form with a mix of .block,
+       .form, .gradio-* and svelte-hashed classes — list them all so the
+       right sidebar follows the theme. */
+    .gradio-container .block,
+    .gradio-container .form,
+    .gradio-container .gr-form,
+    .gradio-container .gr-group,
+    .gradio-container .gradio-group,
+    .gradio-container .gr-accordion,
+    .gradio-container .gradio-accordion,
+    .gradio-container .panel,
+    .gradio-container .padded {
+        background: var(--bg-elevated) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 10px !important;
+    }
+    label, .gradio-container label {
+        color: var(--text-muted) !important;
+    }
+
+    /* ── Latency chip ─────────────────────────────────────────────────── */
+    .latency-chip {
+        font-family: monospace;
+        font-size: 12px;
+        color: var(--text-muted);
+        direction: ltr;
     }
     """
 
@@ -240,18 +405,40 @@ def build_ui(api_url: str):
         chat_history = gr.State([])
         api_url_state = gr.State(api_url)
 
-        # ── Header ────────────────────────────────────────────────────────────
+        # ── Header + theme toggle ─────────────────────────────────────────────
         with gr.Row():
-            gr.HTML("""
-            <div class="header-box">
-                <h1 style="color:#f1f5f9; margin:0; font-size:28px; font-weight:700;">
-                    ⚽ FilGoalBot
-                </h1>
-                <p style="color:#94a3b8; margin:8px 0 0; font-size:15px; direction:rtl;">
-                    مساعد ذكي لأخبار كرة القدم المصرية والعربية والعالمية
-                </p>
-            </div>
-            """)
+            with gr.Column(scale=10):
+                gr.HTML("""
+                <div class="header-box">
+                    <h1 style="margin:0; font-size:30px;">
+                        ⚽ <span class="accent">FilGoal</span>Bot
+                    </h1>
+                    <p style="margin:8px 0 0; font-size:15px; direction:rtl;">
+                        مساعد ذكي لأخبار كرة القدم المصرية والعربية والعالمية
+                    </p>
+                </div>
+                """)
+            with gr.Column(scale=1, min_width=120):
+                # Theme toggle — flips the data-theme attribute on <html>; CSS variables
+                # cascade automatically.
+                theme_toggle = gr.Button(
+                    "☀️ فاتح",
+                    elem_id="theme-toggle",
+                    size="sm",
+                )
+                theme_toggle.click(
+                    fn=None,
+                    inputs=None,
+                    outputs=theme_toggle,
+                    js="""
+                    () => {
+                        const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+                        const next = cur === 'dark' ? 'light' : 'dark';
+                        document.documentElement.setAttribute('data-theme', next);
+                        return next === 'dark' ? '☀️ فاتح' : '🌙 مظلم';
+                    }
+                    """,
+                )
 
         # ── API status ────────────────────────────────────────────────────────
         is_online = check_health(api_url)
@@ -342,8 +529,8 @@ def build_ui(api_url: str):
 
         # ── Footer ────────────────────────────────────────────────────────────
         gr.HTML("""
-        <div style="text-align:center; padding:16px 0 4px; color:#64748b; font-size:12px; direction:rtl;">
-            FilGoalBot · مدعوم بـ FilGoal + Groq · البيانات مُحدَّثة يومياً
+        <div style="text-align:center; padding:16px 0 4px; color:var(--text-muted); font-size:12px; direction:rtl;">
+            <span style="color:var(--accent); font-weight:700;">FilGoal</span>Bot · مدعوم بـ FilGoal + Groq · البيانات مُحدَّثة يومياً
         </div>
         """)
 

@@ -498,6 +498,32 @@ def mrr_score(retrieved_texts: list[str], keywords: list[str]) -> float:
     return 0.0
 
 
+# ── Sharper retrieval metrics ────────────────────────────────────────────────
+# kw_hit_at_rank1 and recall_at_k are designed to differentiate retrievers that
+# saturate the broad "any keyword in any of top-5" metric. They surface ranking
+# quality (was the BEST chunk first?) and coverage (how many of the expected
+# entities appear in the top-K?), which the coarse keyword_hit can't.
+
+def kw_hit_at_rank1(retrieved_texts: list[str], keywords: list[str]) -> float:
+    """1.0 if any expected keyword appears in the top-1 chunk, else 0.0.
+    Surfaces ranking quality — sharper than 'any of top-5'."""
+    if not keywords or not retrieved_texts:
+        return 0.0
+    top = retrieved_texts[0].lower()
+    return 1.0 if any(kw.lower() in top for kw in keywords) else 0.0
+
+
+def recall_at_k(retrieved_texts: list[str], keywords: list[str], k: int) -> float:
+    """Fraction of expected keywords found across the top-k chunks.
+    Surfaces coverage — keyword_hit unioned over top-5 hides whether a single
+    chunk had everything or whether 5 chunks each had one entity."""
+    if not keywords:
+        return 1.0
+    combined = ' '.join(retrieved_texts[:k]).lower()
+    hits = sum(1 for kw in keywords if kw.lower() in combined)
+    return hits / len(keywords)
+
+
 def intent_accuracy(predicted: str, expected: str) -> float:
     return 1.0 if predicted == expected else 0.0
 
@@ -511,6 +537,8 @@ class ExperimentResult:
     name:           str
     rouge_scores:   list[float] = field(default_factory=list)
     keyword_hits:   list[float] = field(default_factory=list)
+    kw_hit_rank1:   list[float] = field(default_factory=list)
+    recall_at_3:    list[float] = field(default_factory=list)
     mrr_scores:     list[float] = field(default_factory=list)
     latencies_ms:   list[float] = field(default_factory=list)
     intents:        list[str]   = field(default_factory=list)
@@ -527,6 +555,14 @@ class ExperimentResult:
     @property
     def avg_keyword_hit(self) -> float:
         return _avg(self.keyword_hits)
+
+    @property
+    def avg_kw_hit_rank1(self) -> float:
+        return _avg(self.kw_hit_rank1)
+
+    @property
+    def avg_recall_at_3(self) -> float:
+        return _avg(self.recall_at_3)
 
     @property
     def avg_mrr(self) -> float:
@@ -600,11 +636,15 @@ def run_retrieval_experiment(
             texts = [c.get("text", "") for c in chunks]
             r1    = rouge1_f1(" ".join(texts), ref)
             kh    = keyword_hit(texts, keywords)
+            kh1   = kw_hit_at_rank1(texts, keywords)
+            r3    = recall_at_k(texts, keywords, 3)
             mrr   = mrr_score(texts, keywords)
             ia    = intent_accuracy(detect_intent(q), intent)
 
             result.rouge_scores.append(r1)
             result.keyword_hits.append(kh)
+            result.kw_hit_rank1.append(kh1)
+            result.recall_at_3.append(r3)
             result.mrr_scores.append(mrr)
             result.latencies_ms.append(ms)
             result.intents.append(intent)
@@ -735,27 +775,31 @@ def run_rag_evaluation(test_cases: list[dict], retriever=None) -> dict:
 # ════════════════════════════════════════════════════════════════════════════
 
 def print_ablation_table(results: list[ExperimentResult]):
-    print(f"\n{'='*70}")
+    print(f"\n{'='*92}")
     print("ABLATION STUDY — Retrieval Quality")
-    print(f"{'='*70}")
-    header = f"{'Experiment':<32} {'ROUGE-1':>8} {'Kw-Hit':>8} {'MRR':>8} {'IntAcc':>8} {'Latency':>10}"
+    print(f"{'='*92}")
+    header = (
+        f"{'Experiment':<32} {'Kw-Hit':>8} {'Kw@1':>7} {'R@3':>7} "
+        f"{'MRR':>7} {'IntAcc':>8} {'Latency':>10}"
+    )
     print(header)
-    print("-" * 80)
+    print("-" * 92)
     for r in results:
         row = (
             f"{r.name:<32} "
-            f"{r.avg_rouge:>8.3f} "
             f"{r.avg_keyword_hit:>8.3f} "
-            f"{r.avg_mrr:>8.3f} "
+            f"{r.avg_kw_hit_rank1:>7.3f} "
+            f"{r.avg_recall_at_3:>7.3f} "
+            f"{r.avg_mrr:>7.3f} "
             f"{r.avg_intent_acc:>8.3f} "
             f"{r.avg_latency:>8.0f}ms"
         )
         print(row)
-    print("-" * 80)
+    print("-" * 92)
 
-    # Highlight winner
-    best = max(results, key=lambda x: x.avg_keyword_hit)
-    print(f"\n🏆 Best retriever: {best.name}  (keyword hit = {best.avg_keyword_hit:.3f})")
+    # Pick winner by MRR (the sharpest available ranking signal).
+    best = max(results, key=lambda x: x.avg_mrr)
+    print(f"\nBest retriever (by MRR): {best.name}  (MRR = {best.avg_mrr:.3f})")
 
 
 def print_intent_breakdown(result: ExperimentResult):
@@ -838,16 +882,17 @@ def run_evaluation(run_rag: bool = False, save_report: bool = False):
         r = run_retrieval_experiment(retriever, test_cases, use_bm25, use_dense, name)
         ablation_results.append(r)
         log.info(
-            f"   ROUGE-1={r.avg_rouge:.3f}  "
-            f"Kw-Hit={r.avg_keyword_hit:.3f}  "
+            f"   Kw-Hit={r.avg_keyword_hit:.3f}  "
+            f"Kw@1={r.avg_kw_hit_rank1:.3f}  "
+            f"R@3={r.avg_recall_at_3:.3f}  "
             f"MRR={r.avg_mrr:.3f}  "
             f"Latency={r.avg_latency:.0f}ms"
         )
 
     print_ablation_table(ablation_results)
 
-    # Best retriever intent breakdown
-    best = max(ablation_results, key=lambda x: x.avg_keyword_hit)
+    # Best retriever intent breakdown — pick by MRR (sharpest signal).
+    best = max(ablation_results, key=lambda x: x.avg_mrr)
     print_intent_breakdown(best)
 
     # ── End-to-end RAG ────────────────────────────────────────────────────
@@ -865,12 +910,14 @@ def run_evaluation(run_rag: bool = False, save_report: bool = False):
         report = {
             "ablation": [
                 {
-                    "name":          r.name,
-                    "avg_rouge1":    round(r.avg_rouge, 3),
-                    "avg_kw_hit":    round(r.avg_keyword_hit, 3),
-                    "avg_mrr":       round(r.avg_mrr, 3),
-                    "avg_latency_ms":round(r.avg_latency, 1),
-                    "per_intent":    r.per_intent_summary(),
+                    "name":             r.name,
+                    "avg_kw_hit":       round(r.avg_keyword_hit, 3),
+                    "avg_kw_hit_rank1": round(r.avg_kw_hit_rank1, 3),
+                    "avg_recall_at_3":  round(r.avg_recall_at_3, 3),
+                    "avg_mrr":          round(r.avg_mrr, 3),
+                    "avg_rouge1":       round(r.avg_rouge, 3),
+                    "avg_latency_ms":   round(r.avg_latency, 1),
+                    "per_intent":       r.per_intent_summary(),
                 }
                 for r in ablation_results
             ],
