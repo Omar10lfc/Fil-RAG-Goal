@@ -97,7 +97,11 @@ app.state.limiter = limiter
 # `add_exception_handler` insists on (Request, Exception). The runtime
 # contract is correct — Starlette dispatches by exception class — so the
 # nominal mismatch is safe to ignore.
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+# `unused-ignore` is part of the code-list so the ignore is silently
+# accepted whether or not the underlying error fires — local dev (no
+# slowapi stubs available) sees an arg-type mismatch; CI (with slowapi
+# installed) does not. One spelling covers both.
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type, unused-ignore]
 
 app.add_middleware(
     CORSMiddleware,
