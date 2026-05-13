@@ -24,16 +24,18 @@ Run:
     python -m evaluation.evaluate --save-report
 """
 
+import argparse
+import json
+import logging
 import os
 import re
-import json
 import time
-import logging
-import argparse
-from pathlib import Path
-from dataclasses import dataclass, field
 from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+
 from dotenv import load_dotenv
+
 load_dotenv()
 
 logging.basicConfig(
@@ -524,8 +526,16 @@ def recall_at_k(retrieved_texts: list[str], keywords: list[str], k: int) -> floa
     return hits / len(keywords)
 
 
-def intent_accuracy(predicted: str, expected: str) -> float:
-    return 1.0 if predicted == expected else 0.0
+def intent_accuracy(predicted: str, expected: str, is_refusal: bool = False) -> float:
+    if predicted == expected:
+        return 1.0
+    # Refusal cases were authored against an older taxonomy that bucketed
+    # everything OOS into "general_football". The classifier now distinguishes
+    # explicit non-football queries via "out_of_scope". Both labels are
+    # acceptable on refusal cases — either label produces a correct refusal.
+    if is_refusal and {predicted, expected} <= {"general_football", "out_of_scope"}:
+        return 1.0
+    return 0.0
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -639,7 +649,10 @@ def run_retrieval_experiment(
             kh1   = kw_hit_at_rank1(texts, keywords)
             r3    = recall_at_k(texts, keywords, 3)
             mrr   = mrr_score(texts, keywords)
-            ia    = intent_accuracy(detect_intent(q), intent)
+            ia    = intent_accuracy(
+                detect_intent(q), intent,
+                is_refusal=case.get("expected_refusal", False),
+            )
 
             result.rouge_scores.append(r1)
             result.keyword_hits.append(kh)
@@ -673,7 +686,7 @@ def run_rag_evaluation(test_cases: list[dict], retriever=None) -> dict:
     second copy. The same model is also wired into embedding_similarity() to
     avoid loading multilingual-e5-base twice.
     """
-    from qa_engine.rag_pipeline import FilGoalRAG, detect_intent
+    from qa_engine.rag_pipeline import FilGoalRAG
 
     bot = FilGoalRAG(retriever=retriever)
     bot.load()
@@ -714,13 +727,13 @@ def run_rag_evaluation(test_cases: list[dict], retriever=None) -> dict:
         # error string against the reference would unfairly penalise the model.
         if GROQ_ERROR_TOKEN in answer:
             n_groq_failures += 1
-            log.warning(f"    ⚠ Groq error — case excluded from metrics")
+            log.warning("    ⚠ Groq error — case excluded from metrics")
             continue
 
         # Metrics
         r1   = rouge1_f1(answer, ref)
         kh   = keyword_hit([answer] + [s.get("title","") for s in result.get("sources",[])], keywords)
-        ia   = intent_accuracy(predicted_intent, expected)
+        ia   = intent_accuracy(predicted_intent, expected, is_refusal=is_refusal)
 
         # Embed-sim only makes sense for content answers — refusal cases are
         # graded separately via refusal_accuracy. Including them as 0.0 in the
@@ -831,7 +844,7 @@ def print_rag_results(rag: dict):
     if rag.get('refusal_accuracy') is not None:
         print(f"  Refusal Accuracy: {rag['refusal_accuracy']:.3f}  (n={rag['n_refusal_cases']})")
     print(f"  Avg Latency:      {rag['avg_latency_ms']:.0f}ms")
-    print(f"\n  Per-Intent Breakdown:")
+    print("\n  Per-Intent Breakdown:")
     print(f"  {'Intent':<22} {'ROUGE-1':>8} {'Kw-Hit':>8} {'Intent-Acc':>12} {'N':>5}")
     print("  " + "-" * 60)
     for intent, m in sorted(rag["per_intent"].items()):

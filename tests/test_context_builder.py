@@ -14,13 +14,18 @@ spec = importlib.util.spec_from_file_location(
 
 def _import_build_context():
     # Lazy module load with mocked-out imports the function doesn't need.
-    import sys, types
+    import sys
+    import types
     if "qa_engine.rag_pipeline" in sys.modules:
         return sys.modules["qa_engine.rag_pipeline"]._build_context
 
     # Stub Groq + retriever before import so we don't pay their init cost.
+    # rag_pipeline imports Groq plus the exception classes it catches; the
+    # test only exercises _build_context, but the import line must resolve.
     sys.modules.setdefault("groq", types.ModuleType("groq"))
     sys.modules["groq"].Groq = lambda **kw: None
+    sys.modules["groq"].RateLimitError = type("RateLimitError", (Exception,), {})
+    sys.modules["groq"].APIStatusError = type("APIStatusError", (Exception,), {})
     from qa_engine.rag_pipeline import _build_context
     return _build_context
 

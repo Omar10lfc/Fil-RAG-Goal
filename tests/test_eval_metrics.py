@@ -6,11 +6,11 @@ import os
 import pytest
 
 from evaluation.evaluate import (
-    rouge1_f1,
+    _normalize_for_metric,
+    intent_accuracy,
     keyword_hit,
     mrr_score,
-    intent_accuracy,
-    _normalize_for_metric,
+    rouge1_f1,
 )
 
 

@@ -51,3 +51,27 @@ def test_estimate_tokens_is_positive():
     assert cache.estimate_tokens("") == 1
     assert cache.estimate_tokens("hello world") >= 1
     assert cache.estimate_tokens("a" * 300) > cache.estimate_tokens("a" * 30)
+
+
+def test_per_intent_ttl_match_result_shorter_than_player_info():
+    """match_result facts go stale within hours; player bios within weeks.
+    The TTL map encodes that asymmetry."""
+    assert cache.ttl_for("match_result") < cache.ttl_for("player_info")
+    assert cache.ttl_for("lineup")       < cache.ttl_for("transfer_news")
+
+
+def test_unknown_intent_falls_back_to_default_ttl():
+    assert cache.ttl_for("not_a_real_intent") == cache.DEFAULT_TTL_SECONDS
+
+
+def test_prompt_version_invalidates_cache(monkeypatch):
+    """Bumping PROMPT_VERSION must shift the cache key so old entries
+    are no longer found — otherwise prompt edits would be silently
+    shadowed by stale completions."""
+    from qa_engine import prompts
+    monkeypatch.setattr(prompts, "PROMPT_VERSION", 1)
+    cache.put("m", "i", ["a"], "q", "old-answer")
+    assert cache.get("m", "i", ["a"], "q") == "old-answer"
+    monkeypatch.setattr(prompts, "PROMPT_VERSION", 2)
+    # Same inputs, new prompt version → key changes → miss.
+    assert cache.get("m", "i", ["a"], "q") is None

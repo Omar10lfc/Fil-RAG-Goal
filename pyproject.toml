@@ -1,0 +1,42 @@
+# Minimal configuration for ruff + mypy. Project itself is not packaged
+# from this file — it's a runnable application, not a library.
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+# Test stubs use `types.ModuleType` patches that ruff would otherwise flag;
+# eval/ has long lines from formatted result tables.
+extend-exclude = ["venv", ".venv", "faiss_index", ".cache", "data"]
+
+[tool.ruff.lint]
+# Conservative selection: pyflakes (F) catches real bugs (undef names,
+# unused imports), pycodestyle errors (E) catches syntax-adjacent issues,
+# and the import-sort (I) keeps imports tidy. Skip rules that would
+# require a refactor sweep just to land CI.
+select = ["F", "E", "I", "W"]
+ignore = [
+    "E501",  # long lines — we have several Arabic regex tables that look fine wrapped or not
+    "E741",  # ambiguous variable names ("l", "I") — used as local in retriever for FAISS index
+    "E701",  # `if x: y` one-liners — used for aligned filter-assignment blocks in rag_pipeline
+    "E731",  # `name = lambda …` — one helper in evaluation/evaluate.py uses this idiom
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F401", "E402"]  # tests import stubs lazily
+"scraper/*" = ["F401"]
+
+[tool.mypy]
+python_version = "3.11"
+# This is an app, not a library — we don't ship stubs for every third-party
+# package, and the value of mypy here is catching genuine type confusion in
+# our own code, not chasing import errors from groq / faiss / gradio.
+ignore_missing_imports = true
+# Keep it pragmatic. We're not trying to pass --strict; we just want the
+# obvious gaps caught before review.
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = false
+# Modules worth checking; everything else is best-effort.
+files = ["qa_engine", "api", "retrieval"]
+exclude = "(venv|.venv|faiss_index|.cache)"

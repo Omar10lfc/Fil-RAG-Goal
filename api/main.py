@@ -15,6 +15,7 @@ Environment:
     GROQ_API_KEY                — required
     FILGOAL_ALLOWED_ORIGINS     — comma-separated; default = "http://127.0.0.1:7860,http://localhost:7860"
     FILGOAL_RATE_LIMIT          — slowapi limit string; default = "20/minute"
+    FILGOAL_LOG_FORMAT          — "text" (default) or "json" for structured logs
 """
 
 import logging
@@ -31,10 +32,11 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+from api.logging_config import configure_logging
 from qa_engine.rag_pipeline import FilGoalRAG
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+configure_logging(level=logging.INFO)
 log = logging.getLogger("api")
 
 # ─── Config ───────────────────────────────────────────────────────────────────
@@ -46,6 +48,24 @@ ALLOWED_ORIGINS = [
     ).split(",") if o.strip()
 ]
 RATE_LIMIT = os.getenv("FILGOAL_RATE_LIMIT", "20/minute")
+
+
+def _assert_groq_key_present() -> None:
+    """Fail fast at process boot if the Groq key is missing or malformed.
+    Checked here in addition to FilGoalRAG.load() so misconfigured deploys
+    crash before the FAISS index spends ~5s loading. Never echo the key
+    itself in errors."""
+    key = os.getenv("GROQ_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("GROQ_API_KEY is not set. Refusing to start.")
+    if not key.startswith("gsk_") or len(key) < 40:
+        raise RuntimeError(
+            "GROQ_API_KEY does not look like a valid Groq key "
+            "(expected `gsk_` prefix, ≥40 chars). Refusing to start."
+        )
+
+
+_assert_groq_key_present()
 
 # ─── App lifespan ─────────────────────────────────────────────────────────────
 
@@ -73,7 +93,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# slowapi's handler is typed for its concrete exception class; FastAPI's
+# `add_exception_handler` insists on (Request, Exception). The runtime
+# contract is correct — Starlette dispatches by exception class — so the
+# nominal mismatch is safe to ignore.
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 app.add_middleware(
     CORSMiddleware,
@@ -106,14 +130,28 @@ class Source(BaseModel):
     pub_date:     str
     article_type: str
     league:       str
+    # New: surface enough metadata that a UI can show *which* article
+    # supported each claim and how confident retrieval was. rrf_score is
+    # the fused BM25+FAISS RRF value with the recency multiplier applied
+    # (see retrieval/hybrid_retriever.retrieve).
+    chunk_id:     str = ""
+    rrf_score:    float = 0.0
 
 class AskResponse(BaseModel):
     answer:       str
     intent:       str
     sources:      list[Source]
     latency_ms:   int
+    # Latency split — retrieval and LLM are the two big-ticket costs, and
+    # are useful to separate when debugging a slow tail (slow FAISS read
+    # vs. slow Groq response).
+    retrieval_ms: int = 0
+    llm_ms:       int = 0
     model:        str | None = None
     cached:       bool = False
+    # One of: "hit" | "miss" | "skipped_oos" | "skipped_no_chunks"
+    #       | "skipped_rate_limit" | "skipped_error"
+    cache_reason: str = "miss"
     request_id:   str
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -151,7 +189,10 @@ async def ask(req: AskRequest, request: Request):
         raise HTTPException(status_code=503, detail="Model still loading")
 
     rid = request.state.request_id
-    log.info(f"[{rid}] /ask — '{req.query[:80]}'")
+    log.info(
+        "ask received",
+        extra={"request_id": rid, "query_len": len(req.query)},
+    )
 
     start = time.monotonic()
     try:
@@ -162,18 +203,46 @@ async def ask(req: AskRequest, request: Request):
             **({"filter_team":   req.filter_team}   if req.filter_team   else {}),
         )
     except Exception as e:
-        log.error(f"[{rid}] RAG error: {e}", exc_info=True)
+        # Log type + message only, NOT the full traceback — Groq SDK frames
+        # carry the client object whose locals include the api_key. We have
+        # a request id for correlation, so a stack trace isn't worth the
+        # credential-disclosure risk.
+        log.error(
+            f"RAG error: {type(e).__name__}: {e}",
+            extra={"request_id": rid},
+        )
         raise HTTPException(status_code=500, detail="Internal error generating answer")
 
     latency = int((time.monotonic() - start) * 1000)
-    log.info(f"[{rid}] intent={result['intent']} model={result.get('model')} cached={result.get('cached')} {latency}ms")
+    log.info(
+        "ask answered",
+        extra={
+            "request_id":   rid,
+            "intent":       result["intent"],
+            "model":        result.get("model"),
+            "cached":       result.get("cached", False),
+            "cache_reason": result.get("cache_reason"),
+            "retrieval_ms": result.get("retrieval_ms"),
+            "llm_ms":       result.get("llm_ms"),
+            "latency_ms":   latency,
+            "n_chunks":     result.get("n_chunks"),
+        },
+    )
 
     return AskResponse(
         answer=result["answer"],
         intent=result["intent"],
-        sources=[Source(**{k: s[k] for k in ("title", "url", "pub_date", "article_type", "league")}) for s in result["sources"]],
+        sources=[
+            Source(**{k: s.get(k, "" if k != "rrf_score" else 0.0)
+                      for k in ("title", "url", "pub_date", "article_type",
+                                "league", "chunk_id", "rrf_score")})
+            for s in result["sources"]
+        ],
         latency_ms=latency,
+        retrieval_ms=result.get("retrieval_ms", 0),
+        llm_ms=result.get("llm_ms", 0),
         model=result.get("model"),
         cached=result.get("cached", False),
+        cache_reason=result.get("cache_reason", "miss"),
         request_id=rid,
     )

@@ -6,11 +6,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from retrieval.hybrid_retriever import (
+    RECENCY_MAX_BOOST,
     _normalize_ar,
+    _recency_multiplier,
     _strip_clitics,
     _tokenize,
-    _recency_multiplier,
-    RECENCY_MAX_BOOST,
 )
 
 

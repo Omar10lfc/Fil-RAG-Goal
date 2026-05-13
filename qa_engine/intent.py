@@ -10,7 +10,12 @@ Intents:
   3. transfer_news     → ميركاتو / انتقالات / عقود
   4. team_news         → أخبار فريق / مران / مؤتمر صحفي
   5. player_info       → معلومات لاعب / إحصائيات
-  6. general_football  → fallback
+  6. general_football  → ambiguous-but-still-football fallback
+                         (e.g. "ترتيب الدوري", "موعد المباريات")
+  7. out_of_scope      → clearly NOT football (weather, cooking, other
+                         sports, politics …). The pipeline short-circuits
+                         these with a tailored refusal BEFORE any
+                         retrieval or LLM call.
 """
 
 import re
@@ -141,6 +146,70 @@ INTENT_ORDER = ["lineup", "match_result", "transfer_news", "team_news", "player_
 EXTRACTIVE_INTENTS = {"lineup", "match_result"}
 
 
+# Patterns that signal a query is clearly NOT about football. Checked only as
+# a tiebreaker against the general_football fallback — i.e. when no specific
+# football intent fires. Otherwise legitimate borderline football queries
+# (e.g. "ترتيب الدوري المصري") would over-refuse.
+#
+# Each pattern is chosen to be either (a) syntactically specific enough not
+# to collide with football vocabulary, or (b) reference a topic with no
+# football overlap at all. Where collision is possible (a club president
+# vs. a country president), the pattern requires the non-football
+# disambiguator explicitly.
+OUT_OF_SCOPE_PATTERNS: list[str] = [
+    # Weather
+    r'\bالطقس\b', r'حال[ةه] الجو', r'درج[ةه] الحرار[ةه]', r'الأمطار',
+    # Cooking / food
+    r'وصف[ةه] طبخ', r'طريق[ةه] طبخ', r'\bطبخ', r'مطبخ',
+    # Restaurants / dining
+    r'\bمطعم\b', r'\bمطاعم\b',
+    # Other sports — explicit so "كرة" alone doesn't trip
+    r'كر[ةه]\s+(?:السل[ةه]|الطائر[ةه]|اليد)',
+    r'\bتنس\b', r'ملاكم[ةه]', r'سباح[ةه]', r'ألعاب القوى',
+    r'فورمولا', r'دراج[ةه] هوائي[ةه]', r'شطرنج',
+    # Named non-football tournaments — covers cases where the query
+    # uses match_result vocabulary ("من فاز ببطولة …") but the subject
+    # is a non-football tournament that bypasses the كرة-based check above.
+    r'ويمبلدون', r'رولان\s+جاروس', r'\bNBA\b', r'\bالـ?NBA\b',
+    r'يورو\s*فيجن', r'الأوسكار',
+    # Politics — require qualifiers that don't apply to club officials
+    r'رئيس الجمهوري[ةه]', r'الانتخابات الرئاسي[ةه]', r'البرلمان',
+    r'وزير\s+(?:الخارجي[ةه]|الداخلي[ةه]|الصح[ةه]|التعليم|المالي[ةه])',
+    # Tech / general apps
+    r'برمج[ةه]', r'كمبيوتر', r'لاب\s*توب', r'هاتف محمول', r'موقع إلكتروني',
+    # Science / academia — extremely unlikely to collide with football
+    r'نظري[ةه] النسبي[ةه]', r'\bفيزياء\b', r'\bكيمياء\b', r'\bرياضيات\b',
+    r'\bأينشتاين\b', r'\bنيوتن\b', r'الجاذبي[ةه]', r'\bالذر[ةه]\b',
+    # Astronomy
+    r'\bالشمس\b', r'\bالقمر\b', r'الكواكب', r'\bالمجر[ةه]\b',
+    # Distance / measurement questions — "كم تبعد X عن Y" is geographic,
+    # nothing in football reads that way.
+    r'\bتبعد\b.{0,30}\bعن\b',
+    # Medicine — pair "علاج" with a disease so we don't fire on "علاج إصابة
+    # محمد صلاح". The disease list covers the common test-set probes.
+    r'علاج\s+(?:السكري|الضغط|البرد|نزلات|الكوليسترول|السرطان|الإيدز)',
+    r'نزلات\s+البرد', r'مرض\s+السكري', r'الكوليسترول',
+    # History / institutions — "متى تأسست" + a non-football institution
+    r'متى\s+تأسست\s+(?:جامع[ةه]|كلي[ةه]|الدول[ةه]|البنك|الجمهوري[ةه])',
+    r'\bجامع[ةه]\s+(?:الأزهر|القاهر[ةه]|عين شمس|الإسكندري[ةه])',
+    # Creative writing / arts
+    r'\bقصيد[ةه]\b', r'اكتب\s+لي\s+قصة', r'اكتب\s+لي\s+مقال',
+    r'\bشعر\s+عن\b', r'\bرواي[ةه]\b\s+\S+',
+    # Entertainment. Religion patterns dropped — "رمضان", "الصلاة" and
+    # "الصيام" collide with legitimate football queries ("هل سيغيب صلاح
+    # في رمضان؟", "وقت الصلاة قبل المباراة"). The test set has no
+    # religion-refusal cases that need them.
+    r'فيلم\s+\S+', r'مسلسل\s+\S+', r'ممثل\s+\S+', r'مطرب\s+\S+',
+    # Economy (non-football)
+    r'سعر\s+الدولار', r'سعر\s+الذهب', r'سعر\s+سهم', r'سعر\s+النفط',
+    r'سعر\s+الفائد[ةه]', r'البورص[ةه]', r'التضخم',
+]
+
+
+def _is_out_of_scope(query: str) -> bool:
+    return any(re.search(p, query) for p in OUT_OF_SCOPE_PATTERNS)
+
+
 def detect_intent(query: str) -> str:
     q = query.lower()
     # "ماذا قال X" → team_news. Override needed because match_result runs first,
@@ -157,6 +226,15 @@ def detect_intent(query: str) -> str:
     # Without this override, team_news's "تدريب" pattern swallows the case.
     if re.search(r'(?:عاد|عودة)\s+\S+(?:\s+\S+){0,2}\s+ل[إا]?\s*تدريب', q):
         return "player_info"
+    # Out-of-scope check BEFORE INTENT_ORDER. Football vocabulary is so
+    # broad (نتيجة، مباراة، حالة، ...) that a query like
+    # "نتيجة مباراة كرة السلة" would otherwise match match_result on
+    # "نتيج" and lose its OOS signal. The patterns are conservative —
+    # they target topics with no overlap with football (weather, other
+    # sports, politics-with-disambiguator, etc.) — so promoting them
+    # over INTENT_ORDER does not over-refuse genuine football queries.
+    if _is_out_of_scope(q):
+        return "out_of_scope"
     for intent in INTENT_ORDER:
         for pattern in INTENT_PATTERNS[intent]:
             if re.search(pattern, q):

@@ -2,7 +2,7 @@
 
 import pytest
 
-from qa_engine.intent import detect_intent, EXTRACTIVE_INTENTS
+from qa_engine.intent import EXTRACTIVE_INTENTS, detect_intent
 
 
 @pytest.mark.parametrize("query,expected", [
@@ -30,9 +30,16 @@ from qa_engine.intent import detect_intent, EXTRACTIVE_INTENTS
     ("هل الونش جاهز للعب؟",                                "player_info"),
     ("إيه إصابة تروسارد؟",                                 "player_info"),
 
-    # general fallback
+    # general fallback — ambiguous but still football
     ("ترتيب الدوري المصري الحالي؟",                        "general_football"),
     ("موعد مباريات الأسبوع القادم؟",                       "general_football"),
+
+    # out_of_scope — clearly NOT football. Must NOT fall into general_football.
+    ("ما حالة الطقس اليوم؟",                               "out_of_scope"),
+    ("اعطني وصفة طبخ المحشي",                              "out_of_scope"),
+    ("من رئيس الجمهورية الحالي؟",                          "out_of_scope"),
+    ("نتيجة مباراة كرة السلة بين الأهلي والزمالك",          "out_of_scope"),
+    ("سعر الدولار اليوم",                                  "out_of_scope"),
 ])
 def test_detect_intent(query: str, expected: str):
     assert detect_intent(query) == expected
