@@ -152,6 +152,10 @@ class AskResponse(BaseModel):
     retrieval_ms: int = 0
     llm_ms:       int = 0
     model:        str | None = None
+    # True if the request was originally routed to the 70B but rate-limited,
+    # and the pipeline automatically retried on the 8B. Useful for the
+    # frontend to render a "answered with fallback model" indicator.
+    model_fallback: bool = False
     cached:       bool = False
     # One of: "hit" | "miss" | "skipped_oos" | "skipped_no_chunks"
     #       | "skipped_rate_limit" | "skipped_error"
@@ -221,15 +225,16 @@ async def ask(req: AskRequest, request: Request):
     log.info(
         "ask answered",
         extra={
-            "request_id":   rid,
-            "intent":       result["intent"],
-            "model":        result.get("model"),
-            "cached":       result.get("cached", False),
-            "cache_reason": result.get("cache_reason"),
-            "retrieval_ms": result.get("retrieval_ms"),
-            "llm_ms":       result.get("llm_ms"),
-            "latency_ms":   latency,
-            "n_chunks":     result.get("n_chunks"),
+            "request_id":     rid,
+            "intent":         result["intent"],
+            "model":          result.get("model"),
+            "model_fallback": result.get("model_fallback", False),
+            "cached":         result.get("cached", False),
+            "cache_reason":   result.get("cache_reason"),
+            "retrieval_ms":   result.get("retrieval_ms"),
+            "llm_ms":         result.get("llm_ms"),
+            "latency_ms":     latency,
+            "n_chunks":       result.get("n_chunks"),
         },
     )
 
@@ -246,6 +251,7 @@ async def ask(req: AskRequest, request: Request):
         retrieval_ms=result.get("retrieval_ms", 0),
         llm_ms=result.get("llm_ms", 0),
         model=result.get("model"),
+        model_fallback=result.get("model_fallback", False),
         cached=result.get("cached", False),
         cache_reason=result.get("cache_reason", "miss"),
         request_id=rid,

@@ -159,6 +159,27 @@ class FilGoalRAG:
         self.retriever = retriever or FilGoalRetriever()
         self.groq: Groq | None = None  # initialised in load() after .env is confirmed
 
+    def _groq_completion(self, model: str, system_prompt: str, user_prompt: str) -> str:
+        """Single Groq call. Raises on transport / SDK errors; returns the
+        stripped answer text on success. Raises RuntimeError if the SDK
+        returns an empty/null completion (treated by callers as a regular
+        error, not a rate-limit)."""
+        assert self.groq is not None, "FilGoalRAG.load() must be called before _groq_completion()"
+        response = self.groq.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user",   "content": user_prompt},
+            ],
+            max_tokens=MAX_TOKENS,
+            temperature=TEMPERATURE,
+        )
+        raw_content = response.choices[0].message.content
+        text = raw_content.strip() if raw_content else ""
+        if not text:
+            raise RuntimeError("empty completion content")
+        return text
+
     def load(self):
         api_key = os.getenv("GROQ_API_KEY", "").strip()
         if not api_key:
@@ -205,6 +226,7 @@ class FilGoalRAG:
                 "intent":         intent,
                 "sources":        [],
                 "model":          None,
+                "model_fallback": False,
                 "cached":         False,
                 "cache_reason":   "skipped_oos",
                 "retrieval_ms":   0,
@@ -232,6 +254,7 @@ class FilGoalRAG:
                 "intent":         intent,
                 "sources":        [],
                 "model":          None,
+                "model_fallback": False,
                 "cached":         False,
                 "cache_reason":   "skipped_no_chunks",
                 "retrieval_ms":   retrieval_ms,
@@ -255,6 +278,7 @@ class FilGoalRAG:
                 "intent":         intent,
                 "sources":        sources[:3],
                 "model":          model,
+                "model_fallback": False,
                 "cached":         True,
                 "cache_reason":   "hit",
                 "retrieval_ms":   retrieval_ms,
@@ -272,40 +296,55 @@ class FilGoalRAG:
             context = context[: len(context) // 2]
             user_prompt = _build_user_prompt(context, query)
 
-        # ── Call Groq ─────────────────────────────────────────────────────────
-        # Two distinct failure modes, both must NOT cache.put():
-        #   - RateLimitError: Groq quota exhausted. Transient — caching the
-        #     canonical error string would poison this (intent, chunks, query)
-        #     key for the intent's TTL.
-        #   - Any other exception: model errors, network blips, parse failures.
-        # Only the successful path reaches cache.put().
-        answer_text: str
-        cache_reason = "miss"
-        # load() is a precondition for answer() — callers always invoke it
-        # at startup. Assert rather than raise: if this fires it's a usage
-        # bug, not a runtime condition. Also narrows the type for mypy.
-        assert self.groq is not None, "FilGoalRAG.load() must be called before answer()"
+        # ── Call Groq with automatic 70B → 8B fallback on rate-limit ──────────
+        # When the 70B's free-tier daily quota or per-minute cap trips a 429,
+        # automatically retry on the 8B model. The 8B has a much larger Groq
+        # ceiling, so this rescues most queries instead of returning
+        # ERROR_ANSWER. The fallback is only attempted when the *intended*
+        # model is the 70B — if 8B itself rate-limits we have nowhere to fall
+        # back to, and we surface the error.
+        #
+        # We do NOT "wait until refresh" — that could block a user-facing
+        # request for hours. Eval / offline workflows that want to avoid
+        # the 70B quota entirely should set FILGOAL_FORCE_SMALL_MODEL=1.
+        answer_text: str  = ""
+        cache_reason      = "miss"
+        effective_model   = model     # the model that actually answered
+        fallback_used     = False
         t1 = time.monotonic()
         try:
-            response = self.groq.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user",   "content": user_prompt},
-                ],
-                max_tokens=MAX_TOKENS,
-                temperature=TEMPERATURE,
-            )
-            # Groq SDK types `content` as Optional[str]; on the rare null
-            # response we fall through to the error path rather than crash.
-            raw_content = response.choices[0].message.content
-            answer_text = raw_content.strip() if raw_content else ""
-            if not answer_text:
-                raise RuntimeError("empty completion content")
+            answer_text = self._groq_completion(model, system_prompt, user_prompt)
         except RateLimitError:
-            log.warning(f"  Groq RateLimitError — quota or per-minute cap hit (model={model})")
-            answer_text = ERROR_ANSWER
-            cache_reason = "skipped_rate_limit"
+            if model != GROQ_MODEL_SMALL:
+                log.warning(
+                    f"  Groq RateLimitError on {model} — falling back to {GROQ_MODEL_SMALL}"
+                )
+                try:
+                    answer_text     = self._groq_completion(GROQ_MODEL_SMALL, system_prompt, user_prompt)
+                    effective_model = GROQ_MODEL_SMALL
+                    fallback_used   = True
+                except RateLimitError:
+                    log.warning(
+                        f"  Groq RateLimitError on fallback {GROQ_MODEL_SMALL} too — both quotas exhausted"
+                    )
+                    answer_text = ERROR_ANSWER
+                    cache_reason = "skipped_rate_limit"
+                except APIStatusError as e:
+                    log.error(
+                        f"  Groq APIStatusError on fallback status={getattr(e, 'status_code', '?')} ({type(e).__name__})"
+                    )
+                    answer_text = ERROR_ANSWER
+                    cache_reason = "skipped_error"
+                except Exception as e:
+                    log.error(f"  Groq error on fallback: {type(e).__name__}: {e}")
+                    answer_text = ERROR_ANSWER
+                    cache_reason = "skipped_error"
+            else:
+                log.warning(
+                    f"  Groq RateLimitError on {model} — already on smallest model, no fallback available"
+                )
+                answer_text = ERROR_ANSWER
+                cache_reason = "skipped_rate_limit"
         except APIStatusError as e:
             log.error(f"  Groq APIStatusError status={getattr(e, 'status_code', '?')} ({type(e).__name__})")
             answer_text = ERROR_ANSWER
@@ -314,16 +353,24 @@ class FilGoalRAG:
             log.error(f"  Groq error: {type(e).__name__}: {e}")
             answer_text = ERROR_ANSWER
             cache_reason = "skipped_error"
-        else:
-            if answer_text and answer_text != ERROR_ANSWER:
-                cache.put(model, intent, chunk_ids, query, answer_text)
+
+        # Cache under the model that actually produced the answer — so a
+        # subsequent identical query (with the same intent → intended model)
+        # won't blindly hit the cache key of a model that never answered.
+        # The cache lookup at the top of answer() uses the *intended* model,
+        # which is correct: if the intended model is 70B and a previous run
+        # cached an 8B fallback answer, we want to try 70B again first.
+        if answer_text and answer_text != ERROR_ANSWER:
+            cache.put(effective_model, intent, chunk_ids, query, answer_text)
+
         llm_ms = int((time.monotonic() - t1) * 1000)
 
         return {
             "answer":         answer_text,
             "intent":         intent,
             "sources":        sources[:3],
-            "model":          model,
+            "model":          effective_model,
+            "model_fallback": fallback_used,
             "cached":         False,
             "cache_reason":   cache_reason,
             "retrieval_ms":   retrieval_ms,

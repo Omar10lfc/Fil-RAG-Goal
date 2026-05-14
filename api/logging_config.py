@@ -24,6 +24,7 @@ _STRUCTURED_FIELDS: tuple[str, ...] = (
     "request_id",
     "intent",
     "model",
+    "model_fallback",
     "cached",
     "cache_reason",
     "retrieval_ms",
