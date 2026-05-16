@@ -159,10 +159,19 @@ EXTRACTIVE_INTENTS = {"lineup", "match_result"}
 OUT_OF_SCOPE_PATTERNS: list[str] = [
     # Weather
     r'\bالطقس\b', r'حال[ةه] الجو', r'درج[ةه] الحرار[ةه]', r'الأمطار',
-    # Cooking / food
+    # Cooking / food — bare "وصفة" too, since recipe queries don't always
+    # spell out "وصفة طبخ" (e.g. "ما هي وصفة الكشري؟"). Football queries
+    # never use "وصفة" so the broader pattern is safe.
     r'وصف[ةه] طبخ', r'طريق[ةه] طبخ', r'\bطبخ', r'مطبخ',
+    r'\bوصف[ةه]\b',
     # Restaurants / dining
     r'\bمطعم\b', r'\bمطاعم\b',
+    # Geography / demographics — only when phrased as a definition-style
+    # question ("ما عاصمة X؟", "عدد سكان X"). The interrogative anchor
+    # avoids collisions with football mentions like "العاصمة الإدارية"
+    # (a stadium location) or surnames containing "سكان".
+    r'(?:ما|إيه|ايه)\s+عاصمة',
+    r'عدد\s+سكان',
     # Other sports — explicit so "كرة" alone doesn't trip
     r'كر[ةه]\s+(?:السل[ةه]|الطائر[ةه]|اليد)',
     r'\bتنس\b', r'ملاكم[ةه]', r'سباح[ةه]', r'ألعاب القوى',
