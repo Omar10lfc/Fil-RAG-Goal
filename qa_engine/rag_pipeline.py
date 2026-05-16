@@ -10,6 +10,7 @@ LLM response cache lives in qa_engine/cache.py.
 
 import logging
 import os
+import re
 import time
 
 from dotenv import load_dotenv
@@ -95,6 +96,21 @@ def _sanitize_query(query: str) -> str:
     return cleaned.strip()
 
 
+# Matches a trailing literal `[N]` / `[n]` placeholder (with optional inner
+# whitespace) that the LLM occasionally emits as a "summary" reference token
+# instead of substituting a real source number. Observed on the 70B with
+# long multi-source answers. The prompt (PROMPT_VERSION ≥ 3) explicitly
+# tells the model never to write a literal N, but this strip is defence in
+# depth — cheaper than re-prompting and never touches real citations like
+# `[1]` / `[12]` because they don't match `[Nn]`.
+_TRAILING_TEMPLATE_LEAK = re.compile(r'\s*\[\s*[Nn]\s*\]\s*$')
+
+
+def _strip_template_leaks(text: str) -> str:
+    """Strip a trailing literal `[N]`/`[n]` placeholder from an LLM answer."""
+    return _TRAILING_TEMPLATE_LEAK.sub('', text).rstrip()
+
+
 def _build_user_prompt(context: str, query: str) -> str:
     safe_query = _sanitize_query(query)
     return (
@@ -176,6 +192,7 @@ class FilGoalRAG:
         )
         raw_content = response.choices[0].message.content
         text = raw_content.strip() if raw_content else ""
+        text = _strip_template_leaks(text)
         if not text:
             raise RuntimeError("empty completion content")
         return text
