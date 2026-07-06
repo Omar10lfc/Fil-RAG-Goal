@@ -11,11 +11,12 @@ Install:
     pip install gradio requests
 """
 
-import re
 import argparse
-import requests
+import html
+from urllib.parse import urlparse
+
 import gradio as gr
-from datetime import datetime
+import requests
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ INTENT_LABELS = {
     "team_news":        "📰 أخبار الفريق",
     "transfer_news":    "🔄 ميركاتو",
     "general_football": "🌍 كرة القدم",
+    "out_of_scope":     "🚫 خارج النطاق",
 }
 
 EXAMPLE_QUESTIONS = [
@@ -80,10 +82,10 @@ def format_sources(sources: list) -> str:
         return ""
     lines = []
     for i, s in enumerate(sources, 1):
-        title    = s.get("title", "")[:70]
-        pub_date = s.get("pub_date", "")[:10]
-        url      = s.get("url", "")
-        league   = s.get("league", "")
+        title    = html.escape(str(s.get("title", ""))[:70])
+        pub_date = html.escape(str(s.get("pub_date", ""))[:10])
+        raw_url  = str(s.get("url", ""))
+        league   = html.escape(str(s.get("league", "")))
 
         meta_parts = []
         if pub_date:
@@ -92,7 +94,12 @@ def format_sources(sources: list) -> str:
             meta_parts.append(league)
         meta = " · ".join(meta_parts)
 
-        body = f'<a href="{url}" target="_blank" rel="noopener" class="source-link">{title}</a>' if url else title
+        parsed = urlparse(raw_url)
+        safe_url = html.escape(raw_url, quote=True) if parsed.scheme in {"http", "https"} else ""
+        body = (
+            f'<a href="{safe_url}" target="_blank" rel="noopener" class="source-link">{title}</a>'
+            if safe_url else title
+        )
         lines.append(f'<div class="source-card"><b>{i}.</b> {body}<br><i>{meta}</i></div>')
 
     return "\n".join(lines)
@@ -403,7 +410,6 @@ def build_ui(api_url: str):
 
         # ── State ─────────────────────────────────────────────────────────────
         chat_history = gr.State([])
-        api_url_state = gr.State(api_url)
 
         # ── Header + theme toggle ─────────────────────────────────────────────
         with gr.Row():
@@ -580,7 +586,7 @@ if __name__ == "__main__":
     parser.add_argument("--share",   action="store_true",    help="Create public Gradio link")
     args = parser.parse_args()
 
-    print(f"\n🚀 Starting FilGoalBot frontend...")
+    print("\n🚀 Starting FilGoalBot frontend...")
     print(f"   API backend : {args.api_url}")
     print(f"   Gradio port : {args.port}")
     print(f"   Public link : {'yes' if args.share else 'no'}\n")

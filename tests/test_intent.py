@@ -40,6 +40,11 @@ from qa_engine.intent import EXTRACTIVE_INTENTS, detect_intent
     ("من رئيس الجمهورية الحالي؟",                          "out_of_scope"),
     ("نتيجة مباراة كرة السلة بين الأهلي والزمالك",          "out_of_scope"),
     ("سعر الدولار اليوم",                                  "out_of_scope"),
+    # Latin-script OOS pattern. Regression: detect_intent lowercases the
+    # query, so the uppercase r'\bNBA\b' pattern only fires with re.IGNORECASE.
+    # Without it this fell into match_result via "فاز" and burnt an LLM call.
+    ("من فاز ببطولة NBA؟",                                 "out_of_scope"),
+    ("مين بطل الـ NBA؟",                                   "out_of_scope"),
 ])
 def test_detect_intent(query: str, expected: str):
     assert detect_intent(query) == expected

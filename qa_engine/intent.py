@@ -142,7 +142,7 @@ INTENT_PATTERNS: dict[str, list[str]] = {
 INTENT_ORDER = ["lineup", "match_result", "transfer_news", "team_news", "player_info"]
 
 # Extractive intents — answer is usually a direct fact in one chunk.
-# These can use the cheaper 8B model without quality loss.
+# These can use the cheaper small model without quality loss.
 EXTRACTIVE_INTENTS = {"lineup", "match_result"}
 
 
@@ -216,7 +216,12 @@ OUT_OF_SCOPE_PATTERNS: list[str] = [
 
 
 def _is_out_of_scope(query: str) -> bool:
-    return any(re.search(p, query) for p in OUT_OF_SCOPE_PATTERNS)
+    # re.IGNORECASE matters for the Latin-script patterns (e.g. r'\bNBA\b'):
+    # detect_intent() lowercases the query before calling us, so an uppercase
+    # literal pattern would never match "nba" and the query would silently
+    # fall through to a football intent. Arabic has no case, so the flag is a
+    # no-op for every Arabic pattern — safe to apply globally.
+    return any(re.search(p, query, re.IGNORECASE) for p in OUT_OF_SCOPE_PATTERNS)
 
 
 def detect_intent(query: str) -> str:

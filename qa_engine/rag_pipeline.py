@@ -39,11 +39,18 @@ OUT_OF_SCOPE_ANSWER  = (
 )
 
 # ── Models ────────────────────────────────────────────────────────────────────
-# Extractive intents (lineup, match_result) get the cheap 8B model: the answer
-# is a direct fact in the retrieved chunk, the LLM only formats it.
-# Everything else gets the 70B for reasoning across multiple chunks.
-GROQ_MODEL_BIG    = "llama-3.3-70b-versatile"
-GROQ_MODEL_SMALL  = "llama-3.1-8b-instant"
+# Default to Groq's recommended GPT-OSS replacements for the deprecated Llama
+# models. Keep env overrides so eval runs can compare Llama vs GPT-OSS while
+# Llama remains available.
+#
+#   FILGOAL_MODEL_BIG=llama-3.3-70b-versatile
+#   FILGOAL_MODEL_SMALL=llama-3.1-8b-instant
+#
+# Extractive intents (lineup, match_result) get the small/fast model: the
+# answer is a direct fact in the retrieved chunk, the LLM only formats it.
+# Everything else gets the larger reasoning model.
+GROQ_MODEL_BIG    = os.getenv("FILGOAL_MODEL_BIG", "openai/gpt-oss-120b").strip()
+GROQ_MODEL_SMALL  = os.getenv("FILGOAL_MODEL_SMALL", "openai/gpt-oss-20b").strip()
 
 MAX_TOKENS  = 600
 TEMPERATURE = 0.2
@@ -62,9 +69,8 @@ FILTER_MAP = {
 
 def _model_for(intent: str) -> str:
     # Demo / quota-pressure escape hatch: when FILGOAL_FORCE_SMALL_MODEL=1, route
-    # every intent to the 8B model. The 70B has a 100k tokens/day ceiling on the
-    # Groq free tier; the 8B has its own (much larger) quota. Useful for live
-    # demos where the 70B may already be exhausted.
+    # every intent to the small model. Useful for live demos when the large-model
+    # quota may already be exhausted.
     if os.getenv("FILGOAL_FORCE_SMALL_MODEL", "").strip() in ("1", "true", "yes"):
         return GROQ_MODEL_SMALL
     return GROQ_MODEL_SMALL if intent in EXTRACTIVE_INTENTS else GROQ_MODEL_BIG
@@ -99,7 +105,7 @@ def _sanitize_query(query: str) -> str:
 # Matches a trailing literal `[N]` / `[n]` placeholder (with optional inner
 # whitespace) that the LLM occasionally emits as a "summary" reference token
 # instead of substituting a real source number. Observed on the 70B with
-# long multi-source answers. The prompt (PROMPT_VERSION ≥ 3) explicitly
+# long multi-source answers. The prompt (PROMPT_VERSION >= 3) explicitly
 # tells the model never to write a literal N, but this strip is defence in
 # depth — cheaper than re-prompting and never touches real citations like
 # `[1]` / `[12]` because they don't match `[Nn]`.
@@ -216,6 +222,13 @@ class FilGoalRAG:
         self.groq = Groq(api_key=api_key)
         log.info("✅ Groq client ready")
 
+        # Reclaim disk from cache entries that have outlived their TTL. The read
+        # path only ignores stale entries, never deletes them, so without this
+        # sweep .cache/llm/ grows unbounded across restarts.
+        purged = cache.purge_expired()
+        if purged:
+            log.info(f"  cache: purged {purged} expired entr{'y' if purged == 1 else 'ies'}")
+
         if not self._retriever_provided:
             self.retriever.load()
         log.info("FilGoalRAG ready")
@@ -313,17 +326,16 @@ class FilGoalRAG:
             context = context[: len(context) // 2]
             user_prompt = _build_user_prompt(context, query)
 
-        # ── Call Groq with automatic 70B → 8B fallback on rate-limit ──────────
-        # When the 70B's free-tier daily quota or per-minute cap trips a 429,
-        # automatically retry on the 8B model. The 8B has a much larger Groq
-        # ceiling, so this rescues most queries instead of returning
-        # ERROR_ANSWER. The fallback is only attempted when the *intended*
-        # model is the 70B — if 8B itself rate-limits we have nowhere to fall
-        # back to, and we surface the error.
+        # ── Call Groq with automatic big → small fallback on rate-limit ───────
+        # When the large model's daily quota or per-minute cap trips a 429,
+        # automatically retry on the small model. This rescues most queries
+        # instead of returning ERROR_ANSWER. The fallback is only attempted when
+        # the *intended* model was the large model — if the small model itself
+        # rate-limits we have nowhere to fall back to, and we surface the error.
         #
         # We do NOT "wait until refresh" — that could block a user-facing
         # request for hours. Eval / offline workflows that want to avoid
-        # the 70B quota entirely should set FILGOAL_FORCE_SMALL_MODEL=1.
+        # the large-model quota entirely should set FILGOAL_FORCE_SMALL_MODEL=1.
         answer_text: str  = ""
         cache_reason      = "miss"
         effective_model   = model     # the model that actually answered
@@ -375,8 +387,9 @@ class FilGoalRAG:
         # subsequent identical query (with the same intent → intended model)
         # won't blindly hit the cache key of a model that never answered.
         # The cache lookup at the top of answer() uses the *intended* model,
-        # which is correct: if the intended model is 70B and a previous run
-        # cached an 8B fallback answer, we want to try 70B again first.
+        # which is correct: if the intended model is the large model and a
+        # previous run cached a small-model fallback answer, we want to try the
+        # large model again first.
         if answer_text and answer_text != ERROR_ANSWER:
             cache.put(effective_model, intent, chunk_ids, query, answer_text)
 

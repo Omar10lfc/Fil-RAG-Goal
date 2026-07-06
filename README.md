@@ -8,7 +8,7 @@ An Arabic football Q&A System built on a hybrid RAG pipeline over scraped FilGoa
 
 - Routes the query to one of six football intents (`match_result`, `lineup`, `transfer_news`, `team_news`, `player_info`, `general_football`) or a 7th `out_of_scope` intent for non-football queries (weather, cooking, other sports, …), short-circuited with a domain-specific refusal before any retrieval or LLM call.
 - Retrieves up to 6 chunks via a hybrid BM25 + FAISS retriever fused with weighted RRF, plus a recency boost for time-sensitive news.
-- Routes extractive intents (lineup, match_result) to a cheap Llama 3.1 8B model, and reasoning-heavy intents to Llama 3.3 70B — saving ~70% of token spend without quality loss. Automatically falls back from 70B → 8B on rate-limit so quota exhaustion never returns an error to the user.
+- Routes extractive intents (lineup, match_result) to a small/fast Groq model and reasoning-heavy intents to a larger model. Defaults are Groq's GPT OSS replacements (`openai/gpt-oss-20b` / `openai/gpt-oss-120b`), with env overrides for Llama-vs-GPT migration evals. Automatically falls back from big → small on rate-limit so quota exhaustion never returns an error to the user.
 - Caches responses keyed on `(model, intent, chunk_ids, query, prompt_version)` with per-intent TTLs — `match_result` expires in 6h, `player_info` in 14d — so a prompt edit or schema change auto-invalidates stale entries.
 - Refuses out-of-scope queries with a canonical Arabic phrase rather than hallucinating.
 - Sanitises user queries against prompt injection — explicit `<<<USER_QUERY>>>` fences, control-char stripping, chat-role-token neutralisation, with system-prompt instructions to treat fenced content as data.
@@ -16,10 +16,10 @@ An Arabic football Q&A System built on a hybrid RAG pipeline over scraped FilGoa
 ## Stack
 
 - **Retrieval:** BM25Okapi (sparse) + FAISS (dense, `intfloat/multilingual-e5-base`) fused with weighted RRF
-- **LLM:** Groq API (Llama 3.1 8B Instant, Llama 3.3 70B Versatile)
+- **LLM:** Groq API (`openai/gpt-oss-20b`, `openai/gpt-oss-120b` by default; Llama IDs configurable for baseline comparisons)
 - **Backend:** FastAPI with slowapi rate limiting
 - **Frontend:** Gradio
-- **Scraping:** Firecrawl
+- **Scraping:** requests + BeautifulSoup
 
 ---
 
@@ -28,6 +28,8 @@ An Arabic football Q&A System built on a hybrid RAG pipeline over scraped FilGoa
 ```bash
 # 1. Install
 pip install -r requirements.txt
+# (optional) dev tooling — same pinned versions CI uses for lint/typecheck/test
+pip install -r requirements-dev.txt
 
 # 2. Configure (Groq API key required)
 cp .env.example .env
@@ -58,6 +60,27 @@ python -m evaluation.evaluate --rag --save-report
 cat evaluation/report.json
 ```
 
+### Compare Llama vs GPT OSS
+
+Groq is decommissioning the Llama defaults for free/developer usage on
+August 16, 2026. The code now defaults to GPT OSS, but the model IDs are
+configurable so you can run an apples-to-apples migration eval while Llama is
+still served.
+
+```powershell
+# 1. Llama baseline
+$env:FILGOAL_MODEL_BIG="llama-3.3-70b-versatile"
+$env:FILGOAL_MODEL_SMALL="llama-3.1-8b-instant"
+python -m evaluation.evaluate --rag --save-report
+Copy-Item evaluation\report.json evaluation\report-llama-baseline.json
+
+# 2. GPT OSS candidate
+$env:FILGOAL_MODEL_BIG="openai/gpt-oss-120b"
+$env:FILGOAL_MODEL_SMALL="openai/gpt-oss-20b"
+python -m evaluation.evaluate --rag --save-report
+Copy-Item evaluation\report.json evaluation\report-gpt-oss.json
+```
+
 To compare retrievers: open the printed ablation table or check the saved
 JSON. **Pick the winner by `MRR` or `Kw@1`, not `Kw-Hit`** — the latter
 saturates around 0.70 and doesn't differentiate retrievers.
@@ -70,13 +93,16 @@ saturates around 0.70 and doesn't differentiate retrievers.
 FilGoalBot/
 ├── api/                    FastAPI server (main.py)
 ├── frontend/               Gradio UI (app.py)
-├── scraper/                Firecrawl-based FilGoal article scraper
+├── scraper/                requests + BeautifulSoup FilGoal article scraper
 ├── preprocessing/          Cleaning, chunking, FAISS index build
 ├── retrieval/              Hybrid BM25 + FAISS retriever with RRF + recency boost
 ├── qa_engine/              RAG pipeline, intent router, prompts, response cache
 ├── evaluation/             60→176 case test set + ablation + RAG eval suite
-├── tests/                  Pytest suite (60 tests)
+├── tests/                  Pytest suite (68 passed, 1 opt-in skip)
 ├── .github/workflows/      CI: ruff + mypy + pytest on every PR
+├── space_app.py            HF Space entry point (FastAPI, no Gradio UI)
+├── requirements-dev.txt    Pinned lint/typecheck/test tooling (matches CI)
+├── LICENSE                 MIT (code only — see data note)
 └── faiss_index/            Built index + metadata.jsonl + config.json
 ```
 
@@ -228,13 +254,13 @@ The Embed-Sim jump from 0.705 to 0.853 is *not* a quality change — it's the sa
 
 ### Test-suite progression
 
-`pytest`: 46 → **60 passed**, +1 skipped (loads a 400MB model; opt-in via `EVAL_FULL=1`). Bugs caught and fixed plus new tests added for new behaviour:
+`pytest`: 46 → **68 passed**, +1 skipped (loads a 400MB model; opt-in via `EVAL_FULL=1`). Bugs caught and fixed plus new tests added for new behaviour:
 
 - **Cache TTL race condition** ([qa_engine/cache.py](qa_engine/cache.py)) — flaky test when `put` and `get` happened within the same OS clock tick. Fixed by changing `>` to `>=` in the staleness check so `ttl=0` reliably means "always stale."
 - **Datetime deprecation** ([retrieval/hybrid_retriever.py](retrieval/hybrid_retriever.py), [tests/test_retriever_helpers.py](tests/test_retriever_helpers.py)) — Python 3.12 deprecated `datetime.utcnow()`. Migrated to `datetime.now(timezone.utc)` with timezone-aware comparisons.
 - **New: `out_of_scope` intent coverage** ([tests/test_intent.py](tests/test_intent.py)) — five queries (weather, cooking, politics, basketball-tournament, finance) that must NOT fall into `general_football`.
 - **New: per-intent TTL + prompt-version invalidation** ([tests/test_cache.py](tests/test_cache.py)) — three tests covering `match_result` < `player_info` TTL ordering, fallback to default on unknown intents, and that bumping `PROMPT_VERSION` shifts the cache key.
-- **New: 70B → 8B fallback behaviour** ([tests/test_model_fallback.py](tests/test_model_fallback.py)) — four tests covering successful fallback, no-fallback-when-already-on-8B, both-models-rate-limited error path, and that the fallback answer is cached under the 8B key (not the intended 70B key) so subsequent cache reads behave correctly.
+- **New: big → small model fallback behaviour** ([tests/test_model_fallback.py](tests/test_model_fallback.py)) — four tests covering successful fallback, no-fallback-when-already-on-the-small-model, both-models-rate-limited error path, and that the fallback answer is cached under the model that actually answered so subsequent cache reads behave correctly.
 
 ### Eval infrastructure
 
@@ -312,7 +338,7 @@ After the quality work landed, a separate pass focused on production-readiness, 
 
 **Prompt versioning** ([qa_engine/prompts.py](qa_engine/prompts.py), [qa_engine/cache.py](qa_engine/cache.py)). `PROMPT_VERSION` is now folded into the cache key. Bumping it auto-invalidates every prior cached answer in a single edit — previously a prompt rewrite would be silently shadowed by stale completions until the TTL expired.
 
-**70B → 8B automatic fallback** ([qa_engine/rag_pipeline.py](qa_engine/rag_pipeline.py)). When the 70B's free-tier quota or per-minute cap returns a 429, the pipeline retries the same query on the 8B before giving up. The 8B has a much larger Groq ceiling, so this rescues queries that would otherwise return an error to the user. The fallback is only attempted when the *intended* model was the 70B — extractive intents that already use the 8B don't loop back to themselves. The result reports both the actual model that answered (`model`) and a flag (`model_fallback: bool`) for observability. **In the latest eval, this rescued 21 cases that would previously have been excluded as Groq failures** (see "Robustness pass (final)" row in Quality progression). We do *not* implement a "wait until refresh" mode — that would block user-facing requests for potentially hours; offline workflows that want to avoid the 70B quota entirely can set `FILGOAL_FORCE_SMALL_MODEL=1`.
+**Big → small automatic fallback** ([qa_engine/rag_pipeline.py](qa_engine/rag_pipeline.py)). When the large model's quota or per-minute cap returns a 429, the pipeline retries the same query on the small model before giving up. This rescues queries that would otherwise return an error to the user. The fallback is only attempted when the *intended* model was the large model — extractive intents that already use the small model don't loop back to themselves. The result reports both the actual model that answered (`model`) and a flag (`model_fallback: bool`) for observability. **In the latest Llama eval, this rescued 21 cases that would previously have been excluded as Groq failures** (see "Robustness pass (final)" row in Quality progression). We do *not* implement a "wait until refresh" mode — that would block user-facing requests for potentially hours; offline workflows that want to avoid the large-model quota entirely can set `FILGOAL_FORCE_SMALL_MODEL=1`.
 
 **Citation surfacing** ([qa_engine/rag_pipeline.py](qa_engine/rag_pipeline.py), [api/main.py](api/main.py)). The `/ask` API now returns `chunk_id` and `rrf_score` per source alongside the article metadata, so a UI can show users *which* article supported each claim and how confident retrieval was. `rrf_score` is the fused BM25+FAISS RRF score with the recency multiplier already applied.
 
@@ -324,12 +350,37 @@ After the quality work landed, a separate pass focused on production-readiness, 
 
 ---
 
+## Deployment
+
+The backend is deployed as a **Hugging Face Space using the Gradio SDK as a
+launcher only — no Docker, no Gradio UI**. [space_app.py](space_app.py) mounts
+the FastAPI app (`api/main.py`) onto Gradio's underlying server via
+`gr.mount_gradio_app`, so the Space exposes the JSON API (`/ask`, `/health`,
+`/docs`) and nothing else. The user-facing website is a separate frontend
+(e.g. Vercel/Netlify) that calls this API.
+
+To deploy:
+
+- Space **SDK** = `gradio`, **app_file** = `space_app.py`.
+- Set the `GROQ_API_KEY` secret.
+- Add the frontend's origin to `FILGOAL_ALLOWED_ORIGINS` so CORS allows it.
+
+**Keeping the corpus fresh.** The scraper supports an incremental
+`--newest-only` mode that pulls just the new article IDs surfaced on the
+homepage/listing pages (above the `.scraped_ids` checkpoint) and skips the
+historical backfill — finishing in seconds. This is the mode a scheduled
+refresh job (e.g. GitHub Actions cron → rebuild index → publish) would run:
+
+```bash
+python -m scraper.filgoal_scraper --newest-only
+```
+
 ## Design decisions worth flagging
 
 - **Soft refusal over speculative answers.** When the retrieved chunks don't contain the answer, the model is prompted to return a canonical Arabic phrase rather than guess. Refusal accuracy of 1.000 confirms this is firing correctly. This is a safety property, not a quality limitation.
-- **Two-tier model cascade.** Lineup and match_result questions are extractive (the answer is a fact in one chunk), so they get Llama 3.1 8B. Reasoning-heavy intents get Llama 3.3 70B. Saves ~70% of token spend on the 70B at no measurable quality cost.
-- **Automatic 70B → 8B fallback on rate-limit.** When the 70B's daily / per-minute cap trips a 429, the same query retries on the 8B before surfacing an error. Latency cost is acceptable (the SDK back-off dominates); user-experience win is large. The fallback flag is reported on the response so a UI can render "answered with fallback model" if it cares.
-- **Disk-based response cache with per-intent TTLs.** JSON files keyed by SHA-256 of `(model, intent, sorted chunk_ids, normalised query, prompt_version)`. Trivial to inspect, trivial to invalidate by deletion, survives across processes. TTLs scale with how fast each intent's facts move (6h for `match_result`, 14d for `player_info`). New articles produce new chunk IDs, so the cache key changes naturally as the corpus updates.
+- **Two-tier model cascade.** Lineup and match_result questions are extractive (the answer is a fact in one chunk), so they get the small/fast model. Reasoning-heavy intents get the larger model. Defaults are `openai/gpt-oss-20b` and `openai/gpt-oss-120b`, while `FILGOAL_MODEL_SMALL` / `FILGOAL_MODEL_BIG` can reproduce the old Llama baseline.
+- **Automatic big → small fallback on rate-limit.** When the large model's daily / per-minute cap trips a 429, the same query retries on the small model before surfacing an error. Latency cost is acceptable (the SDK back-off dominates); user-experience win is large. The fallback flag is reported on the response so a UI can render "answered with fallback model" if it cares.
+- **Disk-based response cache with per-intent TTLs.** JSON files keyed by SHA-256 of `(model, intent, ordered chunk_ids, normalised query, prompt_version)`. Trivial to inspect, trivial to invalidate by deletion, survives across processes. TTLs scale with how fast each intent's facts move (6h for `match_result`, 14d for `player_info`). New articles produce new chunk IDs, so the cache key changes naturally as the corpus updates. Chunk order is preserved because source citation numbers depend on retrieval order. `purge_expired()` runs at startup to delete entries past their TTL (and any corrupt files) so the cache directory doesn't grow unbounded — the read path only *ignores* stale entries, it never removes them.
 - **Arabic clitic stripping in BM25 tokenizer.** Strips leading `و/ف/ب/ل/ك` + optional `ال` prefix so "الأهلي" and "بالأهلي" share the same IDF. Defensive: keeps the original token if stripping leaves a stub of <2 chars.
 - **Recency boost.** Multiplies the fused RRF score by up to 1.10x for same-day articles, decaying exponentially with a 30-day half-life. Football is time-sensitive enough that a same-day post is materially more relevant than a year-old one with similar embedding.
 
@@ -337,7 +388,7 @@ After the quality work landed, a separate pass focused on production-readiness, 
 
 ## Known limitations
 
-- **Free-tier Groq token budget.** The 70B model has a 100K tokens-per-day ceiling, which translates to ~33 fresh queries/day. The 70B → 8B fallback now rescues queries that hit the cap (the 8B has a much larger ceiling), so no user request returns an error purely because of 70B quota — but extended cold-cache eval runs still see 8B-fallback-shaped answers for some cases, which the eval reports honestly via the `model_fallback` flag. The cache makes re-runs free.
+- **Groq token budget and model drift.** The model IDs are configurable because hosted-model availability changes over time. The default GPT OSS pair avoids Groq's August 16, 2026 Llama decommissioning, and the eval commands above let you compare Llama vs GPT OSS quality before fully cutting over. The cache makes re-runs free once answers are generated.
 - **Retrieval saturated on current metrics.** BM25, Dense, and Hybrid all cluster around 0.69 keyword hit rate; the metric is too coarse to measure smaller retrieval improvements (e.g. cross-encoder reranking would be invisible). Sharper metrics (`Recall@3`, `kw-hit @ rank 1`) would unlock further iteration.
 - **Test set under-sampled at the per-intent level.** Even at 176 cases, intents like `lineup` (n=19) and `team_news` (n=29) have wide per-intent confidence intervals. A single misroute moves a per-intent metric by ~5pp.
 

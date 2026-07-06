@@ -10,9 +10,10 @@ Install:
     pip install requests beautifulsoup4 lxml
 
 Usage:
-    python -m scraper.filgoal_scraper              # scrape up to 3000 articles
-    python -m scraper.filgoal_scraper --max 500    # scrape 500 articles
-    python -m scraper.filgoal_scraper --no-resume  # ignore checkpoint, start fresh
+    python -m scraper.filgoal_scraper                # scrape up to 3000 articles
+    python -m scraper.filgoal_scraper --max 500      # scrape 500 articles
+    python -m scraper.filgoal_scraper --no-resume    # ignore checkpoint, start fresh
+    python -m scraper.filgoal_scraper --newest-only  # daily refresh: only new IDs
 """
 
 import argparse
@@ -20,7 +21,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -252,7 +253,7 @@ def parse_article(article_id: int, url: str, soup: BeautifulSoup) -> dict | None
         "image":        image,
         "source_url":   final_url,
         "language":     "ar",
-        "scraped_at":   datetime.utcnow().isoformat(),
+        "scraped_at":   datetime.now(timezone.utc).isoformat(),
     }
 
 # ─── Checkpoint ───────────────────────────────────────────────────────────────
@@ -280,6 +281,7 @@ def run_scraper(
     start_id: int | None = None,
     end_id: int | None = None,
     resume: bool = True,
+    newest_only: bool = False,
 ) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     done_ids      = load_done_ids() if resume else set()
@@ -304,19 +306,29 @@ def run_scraper(
     log.info(f"Seeds: {len(seed_ids)} IDs | range {min_seed}–{max_seed}")
 
     # ── Step 2: Build scan list ───────────────────────────────────────────────
-    if start_id is None:
-        start_id = min_seed - SCAN_BACKWARDS
-    if end_id is None:
-        end_id = max_seed
+    if newest_only:
+        # Daily-refresh mode: scrape ONLY seed IDs we haven't seen yet. The
+        # newest articles always surface on the homepage + first listing pages,
+        # so this finishes in seconds and never re-walks history. No backward
+        # sequential scan, no SCAN_BACKWARDS backfill.
+        known   = set(seed_ids)
+        all_ids = [i for i in seed_ids if i not in done_ids]
+        log.info(f"\n🎯 Newest-only: {len(all_ids)} new article(s) above the checkpoint")
+        log.info(f"   Already scraped: {len(done_ids)}\n")
+    else:
+        if start_id is None:
+            start_id = min_seed - SCAN_BACKWARDS
+        if end_id is None:
+            end_id = max_seed
 
-    scan_range = list(range(end_id, start_id - 1, -1))
-    known   = [i for i in seed_ids if start_id <= i <= end_id]
-    unknown = [i for i in scan_range if i not in set(known)]
-    all_ids = known + unknown
+        scan_range = list(range(end_id, start_id - 1, -1))
+        known   = [i for i in seed_ids if start_id <= i <= end_id]
+        unknown = [i for i in scan_range if i not in set(known)]
+        all_ids = known + unknown
 
-    log.info(f"\n🎯 Plan: {len(known)} seeds + {len(unknown)} sequential IDs")
-    log.info(f"   Range: {start_id} → {end_id} | Target: {max_articles}")
-    log.info(f"   Already scraped: {len(done_ids)}\n")
+        log.info(f"\n🎯 Plan: {len(known)} seeds + {len(unknown)} sequential IDs")
+        log.info(f"   Range: {start_id} → {end_id} | Target: {max_articles}")
+        log.info(f"   Already scraped: {len(done_ids)}\n")
 
     # ── Step 3: Scrape ────────────────────────────────────────────────────────
     with open(OUTPUT_FILE, "a", encoding="utf-8") as fout:
@@ -371,6 +383,12 @@ if __name__ == "__main__":
     parser.add_argument("--start-id",  type=int,  default=None)
     parser.add_argument("--end-id",    type=int,  default=None)
     parser.add_argument("--no-resume", action="store_true")
+    parser.add_argument(
+        "--newest-only",
+        action="store_true",
+        help="Daily-refresh mode: scrape only new homepage/listing IDs above "
+             "the checkpoint, skip the historical backfill scan.",
+    )
     args = parser.parse_args()
 
     run_scraper(
@@ -378,4 +396,5 @@ if __name__ == "__main__":
         start_id=args.start_id,
         end_id=args.end_id,
         resume=not args.no_resume,
+        newest_only=args.newest_only,
     )

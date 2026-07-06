@@ -25,9 +25,9 @@ def test_put_then_get_round_trips():
     assert cache.get("model", "intent", ["c1", "c2"], "ما هي النتيجة؟") == "1-1"
 
 
-def test_chunk_id_order_does_not_affect_key():
+def test_chunk_id_order_affects_key():
     cache.put("m", "i", ["a", "b", "c"], "q", "ans")
-    assert cache.get("m", "i", ["c", "b", "a"], "q") == "ans"
+    assert cache.get("m", "i", ["c", "b", "a"], "q") is None
 
 
 def test_query_normalisation_in_key():
@@ -62,6 +62,38 @@ def test_per_intent_ttl_match_result_shorter_than_player_info():
 
 def test_unknown_intent_falls_back_to_default_ttl():
     assert cache.ttl_for("not_a_real_intent") == cache.DEFAULT_TTL_SECONDS
+
+
+def test_purge_expired_removes_stale_keeps_fresh():
+    """purge_expired() deletes entries past their intent TTL but leaves fresh
+    ones — so the read behaviour is unchanged, only disk is reclaimed."""
+    import time
+
+    # Fresh entry under a long-TTL intent — must survive the purge.
+    cache.put("m", "player_info", ["a"], "q-fresh", "fresh-answer")
+    # Stale entry under a short-TTL intent — backdate its timestamp well past
+    # the match_result TTL so the sweep removes it.
+    cache.put("m", "match_result", ["b"], "q-stale", "stale-answer")
+    stale_key = cache._make_key("m", "match_result", ["b"], "q-stale")
+    stale_path = cache.CACHE_DIR / f"{stale_key}.json"
+    import json
+    entry = json.loads(stale_path.read_text(encoding="utf-8"))
+    entry["ts"] = time.time() - (cache.ttl_for("match_result") + 60)
+    stale_path.write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
+
+    removed = cache.purge_expired()
+
+    assert removed == 1
+    assert cache.get("m", "player_info", ["a"], "q-fresh") == "fresh-answer"
+    assert not stale_path.exists()
+
+
+def test_purge_expired_removes_corrupt_files():
+    """A corrupt cache file (unreadable JSON) is dropped by the sweep."""
+    bad = cache.CACHE_DIR / "deadbeef.json"
+    bad.write_text("{not valid json", encoding="utf-8")
+    assert cache.purge_expired() == 1
+    assert not bad.exists()
 
 
 def test_prompt_version_invalidates_cache(monkeypatch):

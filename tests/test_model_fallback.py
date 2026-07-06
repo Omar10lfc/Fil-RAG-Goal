@@ -1,4 +1,4 @@
-"""Unit tests for the 70B → 8B rate-limit fallback in FilGoalRAG.answer().
+"""Unit tests for the big → small model fallback in FilGoalRAG.answer().
 
 The Groq SDK is stubbed so these tests run offline; we monkey-patch
 _groq_completion to script the per-call outcomes.
@@ -68,9 +68,9 @@ def _chunk(i: int = 0) -> dict:
     }
 
 
-def test_fallback_to_8b_on_70b_rate_limit():
-    """Intent routes to 70B → 70B 429s → pipeline retries on 8B → success.
-    Verify the result reports the 8B as the effective model and sets the
+def test_fallback_to_small_model_on_big_model_rate_limit():
+    """Intent routes to big model → 429 → pipeline retries on small model.
+    Verify the result reports the small model as the effective model and sets the
     model_fallback flag."""
     rag = _build_rag_with_fake_retriever([_chunk()])
     call_log: list[str] = []
@@ -79,23 +79,23 @@ def test_fallback_to_8b_on_70b_rate_limit():
         call_log.append(model)
         if model == GROQ_MODEL_BIG:
             raise _make_rate_limit_error()
-        return "8b answer"
+        return "small-model answer"
 
     rag._groq_completion = fake_completion  # type: ignore[method-assign]
 
-    # team_news is non-extractive → 70B by default.
+    # team_news is non-extractive -> large model by default.
     result = rag.answer("ما أخبار مران الأهلي؟")
 
     assert call_log == [GROQ_MODEL_BIG, GROQ_MODEL_SMALL], \
-        "should have tried 70B first, then 8B as fallback"
-    assert result["answer"]         == "8b answer"
+        "should have tried the big model first, then the small model as fallback"
+    assert result["answer"]         == "small-model answer"
     assert result["model"]          == GROQ_MODEL_SMALL
     assert result["model_fallback"] is True
     assert result["cache_reason"]   == "miss"
 
 
-def test_no_fallback_when_already_on_8b():
-    """Extractive intents route to 8B directly. A 429 there has nowhere to
+def test_no_fallback_when_already_on_small_model():
+    """Extractive intents route to the small model directly. A 429 there has nowhere to
     fall back to — surface the error, don't pretend to succeed."""
     rag = _build_rag_with_fake_retriever([_chunk()])
     call_log: list[str] = []
@@ -106,17 +106,17 @@ def test_no_fallback_when_already_on_8b():
 
     rag._groq_completion = fake_completion  # type: ignore[method-assign]
 
-    # match_result is extractive → routed to 8B from the start.
+    # match_result is extractive → routed to the small model from the start.
     result = rag.answer("ما نتيجة مباراة الأهلي؟")
 
-    assert call_log == [GROQ_MODEL_SMALL], "must not loop back to 8B on itself"
+    assert call_log == [GROQ_MODEL_SMALL], "must not loop back to the small model on itself"
     assert result["answer"]         == ERROR_ANSWER
     assert result["model_fallback"] is False
     assert result["cache_reason"]   == "skipped_rate_limit"
 
 
 def test_both_models_rate_limited():
-    """70B 429 → fallback to 8B → 8B also 429 → error response. The
+    """Big model 429 → fallback to small model → small model also 429. The
     pipeline must not cache the error string."""
     rag = _build_rag_with_fake_retriever([_chunk()])
     call_log: list[str] = []
@@ -139,9 +139,9 @@ def test_both_models_rate_limited():
     assert cache.get(GROQ_MODEL_SMALL, "team_news", chunk_ids, "ما أخبار مران الأهلي؟") is None
 
 
-def test_fallback_answer_is_cached_under_8b_key():
+def test_fallback_answer_is_cached_under_small_model_key():
     """When fallback succeeds, cache the answer under the model that
-    actually produced it (8B) — not under the intended model (70B)."""
+    actually produced it (small) — not under the intended model (big)."""
     rag = _build_rag_with_fake_retriever([_chunk(1)])
     _ = prompts.PROMPT_VERSION  # touch so the import isn't pruned
 

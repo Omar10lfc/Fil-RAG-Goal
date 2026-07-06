@@ -1,7 +1,7 @@
 """
 FilGoalBot — On-disk LLM response cache.
 
-Keyed on (model, intent, sorted chunk_ids, normalised query, prompt_version).
+Keyed on (model, intent, ordered chunk_ids, normalised query, prompt_version).
 Intentionally file-based + JSON: trivial to inspect, trivial to invalidate by
 deletion, and survives across processes (eval re-runs, API restarts).
 
@@ -66,7 +66,10 @@ def _make_key(
         {
             "model": model,
             "intent": intent,
-            "chunks": sorted(chunk_ids),
+            # Preserve retrieval order. The LLM context numbers chunks as
+            # [1], [2], [3], so the same evidence set in a different order can
+            # produce different citation numbers in the answer.
+            "chunks": chunk_ids,
             "query": query.strip().lower(),
             # PROMPT_VERSION folded in so editing prompts.py auto-invalidates
             # every prior cached answer. Without this, a prompt rewrite would
@@ -114,6 +117,32 @@ def put(model: str, intent: str, chunk_ids: list[str], query: str,
         ),
         encoding="utf-8",
     )
+
+
+def purge_expired() -> int:
+    """Delete cache files whose entry has outlived its intent's TTL, plus any
+    that are corrupt/unreadable. Returns the number of files removed.
+
+    The read path (`get`) only ever *ignores* stale entries — it never deletes
+    them — so without a sweep the cache directory grows unbounded over a
+    long-running deployment. Safe to call at startup: it only removes entries a
+    subsequent `get` would already treat as a miss, so it never changes
+    behaviour, only reclaims disk."""
+    removed = 0
+    now = time.time()
+    for path in CACHE_DIR.glob("*.json"):
+        try:
+            entry = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            entry = None
+        # Unreadable/corrupt → drop it. Otherwise drop only if past its TTL.
+        if entry is None or now - entry.get("ts", 0) >= ttl_for(entry.get("intent", "")):
+            try:
+                path.unlink()
+                removed += 1
+            except OSError:
+                pass
+    return removed
 
 
 def estimate_tokens(text: str) -> int:

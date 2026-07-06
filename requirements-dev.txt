@@ -1,0 +1,7 @@
+# Dev / CI tooling. Pinned to the exact versions the GitHub Actions CI runs
+# (.github/workflows/ci.yml) so `pip install -r requirements-dev.txt` lets you
+# reproduce the lint + typecheck + test gates locally before pushing.
+ruff==0.6.9
+mypy==1.11.2
+pytest==8.2.0
+pydantic==2.7.1  # gives mypy the BaseModel type info for the api/ models
