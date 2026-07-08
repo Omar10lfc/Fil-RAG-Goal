@@ -15,7 +15,9 @@ Saves Groq tokens on:
 
 import hashlib
 import json
+import os
 import time
+import uuid
 from pathlib import Path
 
 from qa_engine import prompts  # PROMPT_VERSION read lazily — see _make_key
@@ -109,7 +111,14 @@ def put(model: str, intent: str, chunk_ids: list[str], query: str,
         answer: str) -> None:
     key = _make_key(model, intent, chunk_ids, query)
     path = CACHE_DIR / f"{key}.json"
-    path.write_text(
+    # Atomic write: dump to a uniquely-named temp file in the same directory,
+    # then os.replace() onto the final path. A concurrent get() therefore
+    # only ever sees the old entry, no entry, or the complete new entry —
+    # never a partially-written JSON file (which would be treated as a miss
+    # and the entry silently lost). The uuid suffix prevents two concurrent
+    # writers of the same key from clobbering each other's temp file.
+    tmp = CACHE_DIR / f"{key}.{uuid.uuid4().hex}.tmp"
+    tmp.write_text(
         json.dumps(
             {"ts": time.time(), "answer": answer, "query": query, "intent": intent,
              "prompt_v": prompts.PROMPT_VERSION},
@@ -117,6 +126,16 @@ def put(model: str, intent: str, chunk_ids: list[str], query: str,
         ),
         encoding="utf-8",
     )
+    try:
+        os.replace(tmp, path)
+    except OSError:
+        # Replace failed (e.g. Windows file lock from a concurrent reader).
+        # Losing one cache write is harmless; a leftover temp file is not —
+        # clean it up.
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
 
 
 def purge_expired() -> int:
@@ -130,6 +149,15 @@ def purge_expired() -> int:
     behaviour, only reclaims disk."""
     removed = 0
     now = time.time()
+    # Orphaned temp files from writes interrupted mid-put() (crash between
+    # tmp write and os.replace). Any .tmp older than a minute is dead.
+    for tmp in CACHE_DIR.glob("*.tmp"):
+        try:
+            if now - tmp.stat().st_mtime > 60:
+                tmp.unlink()
+                removed += 1
+        except OSError:
+            pass
     for path in CACHE_DIR.glob("*.json"):
         try:
             entry = json.loads(path.read_text(encoding="utf-8"))

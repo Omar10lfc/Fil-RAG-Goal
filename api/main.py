@@ -18,6 +18,7 @@ Environment:
     FILGOAL_LOG_FORMAT          — "text" (default) or "json" for structured logs
 """
 
+import asyncio
 import logging
 import os
 import time
@@ -204,7 +205,12 @@ async def ask(req: AskRequest, request: Request):
 
     start = time.monotonic()
     try:
-        result = rag.answer(
+        # rag.answer() is fully synchronous (FAISS retrieval + blocking Groq
+        # HTTP call, seconds-long). Running it inline would block the event
+        # loop and stall every concurrent request, so push it to a worker
+        # thread and keep the loop free.
+        result = await asyncio.to_thread(
+            rag.answer,
             query=req.query,
             **({"filter_type":   req.filter_type}   if req.filter_type   else {}),
             **({"filter_league": req.filter_league} if req.filter_league else {}),

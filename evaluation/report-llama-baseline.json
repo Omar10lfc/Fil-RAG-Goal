@@ -7,27 +7,22 @@
       "avg_recall_at_3": 0.68,
       "avg_mrr": 0.719,
       "avg_rouge1": 0.024,
-      "avg_latency_ms": 20.8,
+      "avg_latency_ms": 19.3,
       "per_intent": {
-        "team_news": {
-          "rouge1": 0.027,
-          "keyword_hit": 0.672,
-          "n_cases": 31
-        },
         "player_info": {
           "rouge1": 0.026,
           "keyword_hit": 0.657,
           "n_cases": 25
         },
-        "general_football": {
-          "rouge1": 0.015,
-          "keyword_hit": 0.801,
-          "n_cases": 36
-        },
         "lineup": {
           "rouge1": 0.03,
           "keyword_hit": 0.68,
           "n_cases": 19
+        },
+        "general_football": {
+          "rouge1": 0.015,
+          "keyword_hit": 0.801,
+          "n_cases": 36
         },
         "match_result": {
           "rouge1": 0.027,
@@ -38,6 +33,11 @@
           "rouge1": 0.023,
           "keyword_hit": 0.716,
           "n_cases": 34
+        },
+        "team_news": {
+          "rouge1": 0.027,
+          "keyword_hit": 0.672,
+          "n_cases": 31
         }
       }
     },
@@ -48,27 +48,22 @@
       "avg_recall_at_3": 0.695,
       "avg_mrr": 0.752,
       "avg_rouge1": 0.029,
-      "avg_latency_ms": 267.0,
+      "avg_latency_ms": 82.2,
       "per_intent": {
-        "team_news": {
-          "rouge1": 0.032,
-          "keyword_hit": 0.702,
-          "n_cases": 31
-        },
         "player_info": {
           "rouge1": 0.028,
           "keyword_hit": 0.677,
           "n_cases": 25
         },
-        "general_football": {
-          "rouge1": 0.017,
-          "keyword_hit": 0.75,
-          "n_cases": 36
-        },
         "lineup": {
           "rouge1": 0.035,
           "keyword_hit": 0.693,
           "n_cases": 19
+        },
+        "general_football": {
+          "rouge1": 0.017,
+          "keyword_hit": 0.75,
+          "n_cases": 36
         },
         "match_result": {
           "rouge1": 0.035,
@@ -79,6 +74,11 @@
           "rouge1": 0.03,
           "keyword_hit": 0.75,
           "n_cases": 34
+        },
+        "team_news": {
+          "rouge1": 0.032,
+          "keyword_hit": 0.702,
+          "n_cases": 31
         }
       }
     },
@@ -89,27 +89,22 @@
       "avg_recall_at_3": 0.693,
       "avg_mrr": 0.768,
       "avg_rouge1": 0.027,
-      "avg_latency_ms": 286.1,
+      "avg_latency_ms": 93.9,
       "per_intent": {
-        "team_news": {
-          "rouge1": 0.03,
-          "keyword_hit": 0.68,
-          "n_cases": 31
-        },
         "player_info": {
           "rouge1": 0.027,
           "keyword_hit": 0.677,
           "n_cases": 25
         },
-        "general_football": {
-          "rouge1": 0.016,
-          "keyword_hit": 0.759,
-          "n_cases": 36
-        },
         "lineup": {
           "rouge1": 0.035,
           "keyword_hit": 0.711,
           "n_cases": 19
+        },
+        "general_football": {
+          "rouge1": 0.016,
+          "keyword_hit": 0.759,
+          "n_cases": 36
         },
         "match_result": {
           "rouge1": 0.031,
@@ -120,62 +115,67 @@
           "rouge1": 0.027,
           "keyword_hit": 0.725,
           "n_cases": 34
+        },
+        "team_news": {
+          "rouge1": 0.03,
+          "keyword_hit": 0.68,
+          "n_cases": 31
         }
       }
     }
   ],
   "rag": {
     "n_cases": 176,
-    "n_scored": 174,
-    "n_groq_failures": 2,
-    "avg_rouge1": 0.258,
-    "avg_embed_sim": 0.876,
-    "n_embed_sim": 149,
-    "avg_keyword_hit": 0.876,
-    "intent_accuracy": 0.971,
+    "n_scored": 176,
+    "n_groq_failures": 0,
+    "avg_rouge1": 0.246,
+    "avg_embed_sim": 0.866,
+    "n_embed_sim": 151,
+    "avg_keyword_hit": 0.86,
+    "intent_accuracy": 0.972,
     "refusal_accuracy": 1.0,
     "n_refusal_cases": 25,
-    "avg_latency_ms": 403.6,
+    "avg_latency_ms": 11857.3,
     "per_intent": {
       "match_result": {
-        "avg_rouge1": 0.354,
-        "avg_embed_sim": 0.88,
+        "avg_rouge1": 0.276,
+        "avg_embed_sim": 0.86,
         "avg_keyword_hit": 0.785,
         "intent_accuracy": 0.968,
         "n_cases": 31
       },
       "player_info": {
-        "avg_rouge1": 0.257,
-        "avg_embed_sim": 0.897,
-        "avg_keyword_hit": 0.963,
+        "avg_rouge1": 0.355,
+        "avg_embed_sim": 0.905,
+        "avg_keyword_hit": 0.92,
         "intent_accuracy": 1.0,
         "n_cases": 25
       },
       "lineup": {
-        "avg_rouge1": 0.205,
-        "avg_embed_sim": 0.813,
-        "avg_keyword_hit": 0.863,
+        "avg_rouge1": 0.16,
+        "avg_embed_sim": 0.809,
+        "avg_keyword_hit": 0.851,
         "intent_accuracy": 1.0,
-        "n_cases": 17
+        "n_cases": 19
       },
       "transfer_news": {
-        "avg_rouge1": 0.255,
-        "avg_embed_sim": 0.871,
-        "avg_keyword_hit": 0.863,
+        "avg_rouge1": 0.252,
+        "avg_embed_sim": 0.863,
+        "avg_keyword_hit": 0.873,
         "intent_accuracy": 1.0,
         "n_cases": 34
       },
       "team_news": {
-        "avg_rouge1": 0.269,
-        "avg_embed_sim": 0.895,
-        "avg_keyword_hit": 0.925,
+        "avg_rouge1": 0.235,
+        "avg_embed_sim": 0.885,
+        "avg_keyword_hit": 0.86,
         "intent_accuracy": 1.0,
         "n_cases": 31
       },
       "general_football": {
         "avg_rouge1": 0.194,
-        "avg_embed_sim": 0.874,
-        "avg_keyword_hit": 0.87,
+        "avg_embed_sim": 0.849,
+        "avg_keyword_hit": 0.875,
         "intent_accuracy": 0.889,
         "n_cases": 36
       }
