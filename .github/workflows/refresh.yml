@@ -1,0 +1,63 @@
+name: Refresh corpus
+
+# Scrape newest articles, rebuild chunks, and commit updated data.
+# Runs daily at midnight UTC or on manual trigger.
+#
+# NOTE: The FAISS index rebuild step requires a script that embeds the new
+# chunks and writes faiss_index/index.bin + metadata.jsonl.  If your current
+# workflow rebuilds the index as part of preprocessing.pipeline, this will
+# work as-is.  Otherwise, add the index-build command where indicated below.
+
+on:
+  schedule:
+    - cron: '0 0 * * *'   # Daily at midnight UTC
+  workflow_dispatch:        # Allow manual trigger from the Actions tab
+
+concurrency:
+  group: refresh-corpus
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    name: Scrape & rebuild
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # CPU-only torch keeps the install fast and small.
+      - name: Install torch (CPU wheel)
+        run: pip install --index-url https://download.pytorch.org/whl/cpu torch==2.2.0
+
+      - name: Install project requirements
+        run: pip install -r requirements.txt
+
+      # Cache the sentence-transformers model (~400 MB) across runs.
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-model-${{ hashFiles('requirements.txt') }}
+          restore-keys: hf-model-
+
+      - name: Scrape newest articles
+        run: python -m scraper.filgoal_scraper --newest-only
+
+      - name: Run preprocessing pipeline
+        run: python -m preprocessing.pipeline
+
+      # TODO: If the FAISS index is built by a separate script, add it here:
+      # - name: Rebuild FAISS index
+      #   run: python -m preprocessing.build_index
+
+      - name: Commit updated corpus (if changed)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ faiss_index/
+          git diff --cached --quiet || git commit -m "chore: daily corpus refresh [skip ci]"
+          git push

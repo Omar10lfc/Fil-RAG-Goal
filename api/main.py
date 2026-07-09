@@ -177,21 +177,35 @@ def root():
 
 @app.get("/health")
 def health():
-    """Deeper readiness check: confirms model is loaded AND a known retrieval
-    returns at least one chunk. Catches "FAISS file got corrupted" type
-    failures that the previous shallow check missed."""
+    """Deeper readiness check: confirms model is loaded, the retriever works,
+    AND the Groq client is initialised. Catches "FAISS file got corrupted",
+    expired API keys, and other config failures before users hit them."""
     if not rag:
         raise HTTPException(status_code=503, detail="Model still loading")
+    if rag.groq is None:
+        raise HTTPException(status_code=503, detail="Groq client not initialized")
     try:
         chunks = rag.retriever.retrieve("الأهلي", top_k=1)
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Retriever error: {e!s}")
     if not chunks:
         raise HTTPException(status_code=503, detail="Retriever returned no results")
-    return {"status": "ok", "chunks_loaded": len(rag.retriever.metadata)}
+    return {
+        "status": "ok",
+        "chunks_loaded": len(rag.retriever.metadata),
+        "groq_ready": True,
+    }
 
 
-@app.post("/ask", response_model=AskResponse)
+@app.post(
+    "/ask",
+    response_model=AskResponse,
+    responses={
+        429: {"description": "Rate limit exceeded — retry after the window resets"},
+        503: {"description": "Model still loading or retriever unavailable"},
+        500: {"description": "Internal error generating answer (Groq API or pipeline failure)"},
+    },
+)
 @limiter.limit(RATE_LIMIT)
 async def ask(req: AskRequest, request: Request):
     if not rag:

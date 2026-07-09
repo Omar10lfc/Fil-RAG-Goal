@@ -75,7 +75,16 @@ def make_session() -> requests.Session:
     s.headers.update(HEADERS)
     return s
 
-SESSION = make_session()
+# Lazy-initialised so importing the module for testing or type-checking
+# doesn't create a live HTTP session with retry adapters as a side effect.
+_SESSION: requests.Session | None = None
+
+
+def _get_session() -> requests.Session:
+    global _SESSION
+    if _SESSION is None:
+        _SESSION = make_session()
+    return _SESSION
 
 # ─── Low-level fetch ──────────────────────────────────────────────────────────
 
@@ -85,7 +94,7 @@ def fetch_html(url: str) -> BeautifulSoup | None:
     Returns None on 404, connection errors, or rate limits.
     """
     try:
-        resp = SESSION.get(url, timeout=20)
+        resp = _get_session().get(url, timeout=20)
 
         if resp.status_code == 404:
             return None
