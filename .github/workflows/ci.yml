@@ -57,6 +57,8 @@ jobs:
         run: pip install --index-url https://download.pytorch.org/whl/cpu torch==2.2.0
       - name: Install project requirements
         run: pip install -r requirements.txt
+      - name: Install pytest
+        run: pip install pytest==8.2.0
       # The pytest suite stubs out heavy imports (groq, sentence_transformers),
       # so it runs in seconds. The one test that loads a 400MB model is gated
       # behind EVAL_FULL=1 — we don't set it here.
