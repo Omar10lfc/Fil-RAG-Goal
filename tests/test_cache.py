@@ -107,3 +107,35 @@ def test_prompt_version_invalidates_cache(monkeypatch):
     monkeypatch.setattr(prompts, "PROMPT_VERSION", 2)
     # Same inputs, new prompt version → key changes → miss.
     assert cache.get("m", "i", ["a"], "q") is None
+
+
+def test_conversation_key_shifts_cache():
+    """A cached standalone answer must not shadow a follow-up: the follow-up
+    context participates in the key, so identical (model, intent, chunks,
+    query) with different conversation context are different entries."""
+    cache.put("m", "i", ["a"], "q", "standalone-answer")
+    assert cache.get("m", "i", ["a"], "q") == "standalone-answer"
+    # Same query + a follow-up context → miss (would have shadowed before A13).
+    assert cache.get("m", "i", ["a"], "q", conversation_key="prev exchange") is None
+    cache.put("m", "i", ["a"], "q", "followup-answer", conversation_key="prev exchange")
+    assert cache.get("m", "i", ["a"], "q", conversation_key="prev exchange") == "followup-answer"
+    # And the standalone entry is untouched.
+    assert cache.get("m", "i", ["a"], "q") == "standalone-answer"
+
+
+def test_size_cap_evicts_oldest_entries(monkeypatch):
+    """FILGOAL_CACHE_MAX_ENTRIES bounds .cache/llm/: beyond the cap, the
+    oldest-by-mtime entries are evicted and the newest survives."""
+    import time
+
+    monkeypatch.setenv("FILGOAL_CACHE_MAX_ENTRIES", "3")
+    for i in range(5):
+        cache.put("m", "i", [f"c{i}"], f"q{i}", f"ans{i}")
+        # Distinct mtimes so "oldest" is deterministic on coarse filesystems.
+        time.sleep(0.02)
+
+    files = list(cache.CACHE_DIR.glob("*.json"))
+    assert len(files) <= 3
+    # Newest entry survives; oldest is gone.
+    assert cache.get("m", "i", ["c4"], "q4") == "ans4"
+    assert cache.get("m", "i", ["c0"], "q0") is None

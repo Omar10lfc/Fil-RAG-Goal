@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import time
+from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 from groq import APIStatusError, Groq, RateLimitError
@@ -67,12 +68,37 @@ FILTER_MAP = {
 }
 
 
+def _is_force_small() -> bool:
+    return os.getenv("FILGOAL_FORCE_SMALL_MODEL", "").strip() in ("1", "true", "yes")
+
+
+def _is_force_big() -> bool:
+    """Operator override: route every intent to the big model.
+
+    Production default (=1 in .env.example). The small default
+    (openai/gpt-oss-20b) has a runaway-reasoning loop on Arabic RAG contexts
+    that exhausts its token budget and returns empty completions — forcing big
+    keeps production answers flowing. Unlike the old `sys.modules` sniffing
+    hack this replaces, the decision is visible to operators and testable via
+    env per test case. FILGOAL_FORCE_SMALL_MODEL still wins when both are set
+    (explicit demo/quota-escape override).
+    """
+    return os.getenv("FILGOAL_FORCE_BIG_MODEL", "").strip() in ("1", "true", "yes")
+
+
 def _model_for(intent: str) -> str:
     # Demo / quota-pressure escape hatch: when FILGOAL_FORCE_SMALL_MODEL=1, route
     # every intent to the small model. Useful for live demos when the large-model
     # quota may already be exhausted.
-    if os.getenv("FILGOAL_FORCE_SMALL_MODEL", "").strip() in ("1", "true", "yes"):
+    if _is_force_small():
         return GROQ_MODEL_SMALL
+
+    # Bypass the buggy runaway reasoning loop of openai/gpt-oss-20b on Arabic queries
+    # by routing all intents to the big model when the operator opts in
+    # (production default via .env.example).
+    if _is_force_big():
+        return GROQ_MODEL_BIG
+
     return GROQ_MODEL_SMALL if intent in EXTRACTIVE_INTENTS else GROQ_MODEL_BIG
 
 
@@ -101,7 +127,6 @@ def _sanitize_query(query: str) -> str:
         cleaned = cleaned.replace(needle, "")
     return cleaned.strip()
 
-
 # Matches a trailing literal `[N]` / `[n]` placeholder (with optional inner
 # whitespace) that the LLM occasionally emits as a "summary" reference token
 # instead of substituting a real source number. Observed on the 70B with
@@ -110,11 +135,16 @@ def _sanitize_query(query: str) -> str:
 # depth — cheaper than re-prompting and never touches real citations like
 # `[1]` / `[12]` because they don't match `[Nn]`.
 _TRAILING_TEMPLATE_LEAK = re.compile(r'\s*\[\s*[Nn]\s*\]\s*$')
+# Matches a trailing list item that starts with a bullet/dash but has no
+# punctuation or closing bracket (citation) at the end, meaning it's incomplete.
+_TRAILING_INCOMPLETE_BULLET = re.compile(r'\n\s*[-*•]\s*[^\n.!?\]]+$')
 
 
 def _strip_template_leaks(text: str) -> str:
-    """Strip a trailing literal `[N]`/`[n]` placeholder from an LLM answer."""
-    return _TRAILING_TEMPLATE_LEAK.sub('', text).rstrip()
+    """Strip trailing template leaks and incomplete bullet points from LLM answer."""
+    text = _TRAILING_TEMPLATE_LEAK.sub('', text)
+    text = _TRAILING_INCOMPLETE_BULLET.sub('', text)
+    return text.rstrip()
 
 
 def _build_user_prompt(
@@ -182,9 +212,30 @@ def _build_context(chunks: list[dict]) -> tuple[str, list[dict]]:
     return "\n\n---\n\n".join(context_parts), sources
 
 
+@dataclass
+class Prepared:
+    """Shared preparation for answer() and answer_stream() — one path, no drift.
+
+    Covers intent → filters → retrieval → context/prompts → model → cache
+    lookup. (The plan's "prompts" slot materialized as the two concrete
+    strings system_prompt/user_prompt the Groq calls need.)
+    """
+    intent: str
+    chunks: list[dict] = field(default_factory=list)
+    context: str = ""
+    sources: list[dict] = field(default_factory=list)
+    chunk_ids: list[str] = field(default_factory=list)
+    model: str = ""
+    system_prompt: str = ""
+    user_prompt: str = ""
+    conv_key: str = ""
+    cached_answer: str | None = None
+    retrieval_ms: int = 0
+    out_of_scope: bool = False
+
+
 class FilGoalRAG:
-    def __init__(self, retriever: FilGoalRetriever | None = None):
-        # When a pre-loaded retriever is passed in (e.g. from the eval suite),
+    def __init__(self, retriever: FilGoalRetriever | None = None):        # When a pre-loaded retriever is passed in (e.g. from the eval suite),
         # skip retriever.load() to avoid a second FAISS+BM25+ST cold start.
         self._retriever_provided = retriever is not None
         self.retriever = retriever or FilGoalRetriever()
@@ -255,10 +306,88 @@ class FilGoalRAG:
         purged = cache.purge_expired()
         if purged:
             log.info(f"  cache: purged {purged} expired entr{'y' if purged == 1 else 'ies'}")
+        # One-time invalidation notice: CACHE_KEY_VERSION 2 folds the follow-up
+        # context into the hash, so pre-v2 entries miss once and age out via TTL.
+        log.info(f"  cache: key v{cache.CACHE_KEY_VERSION} (conversation-aware)")
 
         if not self._retriever_provided:
             self.retriever.load()
         log.info("FilGoalRAG ready")
+
+    def _prepare(
+        self,
+        query: str,
+        conversation_context: str | None = None,
+        filters: dict | None = None,
+    ) -> Prepared:
+        """Shared preparation consumed by answer() and answer_stream().
+
+        Intent detection → metadata filters → timed retrieval → context build →
+        model routing → token-budget guard → cache lookup. Out-of-scope and
+        no-chunks cases return a thin Prepared (out_of_scope / empty chunks)
+        so callers emit their refusal shapes without duplicating this path.
+        """
+        intent = detect_intent(query)
+
+        # ── Out-of-scope short-circuit ────────────────────────────────────
+        # The classifier already decided this isn't football. Refuse WITHOUT
+        # retrieval or LLM — both would waste resources and risk returning a
+        # tangentially-related football article as a fake answer.
+        if intent == "out_of_scope":
+            log.info(
+                "out_of_scope refusal",
+                extra={"intent": intent, "cache_reason": "skipped_oos"},
+            )
+            return Prepared(intent=intent, out_of_scope=True)
+
+        merged = dict(FILTER_MAP.get(intent, {}))
+        if filters:
+            merged.update(filters)  # explicit caller filters win over intent defaults
+        log.info(
+            f"Intent: {intent} | Filters: {merged} | Query: {query}",
+            extra={"intent": intent},
+        )
+
+        # ── Retrieval (timed) ─────────────────────────────────────────────
+        t0 = time.monotonic()
+        chunks = self.retriever.retrieve(query, top_k=TOP_K, **merged)
+        retrieval_ms = int((time.monotonic() - t0) * 1000)
+
+        if not chunks:
+            return Prepared(intent=intent, retrieval_ms=retrieval_ms)
+
+        context, sources = _build_context(chunks)
+        chunk_ids = [c.get("chunk_id", "") for c in chunks]
+        model = _model_for(intent)
+        # Follow-up context participates in the cache key — otherwise a cached
+        # standalone answer would shadow a follow-up resolving the same way.
+        conv_key = conversation_context or ""
+
+        # ── Token budget guard ────────────────────────────────────────────
+        system_prompt = prompts.INTENT_PROMPTS[intent]
+        user_prompt = _build_user_prompt(context, query, conversation_context)
+        prompt_tokens = cache.estimate_tokens(system_prompt) + cache.estimate_tokens(user_prompt)
+        if prompt_tokens + MAX_TOKENS > MAX_PROMPT_TOKENS:
+            log.warning(f"  prompt too large ({prompt_tokens} est. tokens) — truncating context")
+            # Halve the context — naive but predictable
+            context = context[: len(context) // 2]
+            user_prompt = _build_user_prompt(context, query, conversation_context)
+
+        # ── Cache lookup ──────────────────────────────────────────────────
+        cached_answer = cache.get(model, intent, chunk_ids, query,
+                                  conversation_key=conv_key)
+        if cached_answer is not None:
+            log.info(
+                f"  ↩ cache hit ({model})",
+                extra={"intent": intent, "model": model, "cache_reason": "hit"},
+            )
+
+        return Prepared(
+            intent=intent, chunks=chunks, context=context, sources=sources,
+            chunk_ids=chunk_ids, model=model, system_prompt=system_prompt,
+            user_prompt=user_prompt, conv_key=conv_key,
+            cached_answer=cached_answer, retrieval_ms=retrieval_ms,
+        )
 
     def answer(
         self,
@@ -268,17 +397,14 @@ class FilGoalRAG:
         filter_team: str | None = None,
         conversation_context: str | None = None,
     ) -> dict:
-        intent  = detect_intent(query)
+        filters: dict = {}
+        if filter_type   is not None: filters["filter_type"]   = filter_type
+        if filter_league is not None: filters["filter_league"] = filter_league
+        if filter_team   is not None: filters["filter_team"]   = filter_team
+        prep = self._prepare(query, conversation_context, filters)
+        intent, model = prep.intent, prep.model
 
-        # ── Out-of-scope short-circuit ────────────────────────────────────────
-        # The classifier already decided this isn't football. Refuse here
-        # WITHOUT retrieval or LLM — both would waste resources and risk
-        # returning a tangentially-related football article as a fake answer.
-        if intent == "out_of_scope":
-            log.info(
-                "out_of_scope refusal",
-                extra={"intent": intent, "cache_reason": "skipped_oos"},
-            )
+        if prep.out_of_scope:
             return {
                 "answer":         OUT_OF_SCOPE_ANSWER,
                 "intent":         intent,
@@ -292,21 +418,7 @@ class FilGoalRAG:
                 "n_chunks":       0,
             }
 
-        filters = dict(FILTER_MAP.get(intent, {}))
-        if filter_type   is not None: filters["filter_type"]   = filter_type
-        if filter_league is not None: filters["filter_league"] = filter_league
-        if filter_team   is not None: filters["filter_team"]   = filter_team
-        log.info(
-            f"Intent: {intent} | Filters: {filters} | Query: {query}",
-            extra={"intent": intent},
-        )
-
-        # ── Retrieval (timed) ─────────────────────────────────────────────────
-        t0 = time.monotonic()
-        chunks = self.retriever.retrieve(query, top_k=TOP_K, **filters)
-        retrieval_ms = int((time.monotonic() - t0) * 1000)
-
-        if not chunks:
+        if not prep.chunks:
             return {
                 "answer":         REFUSAL_ANSWER,
                 "intent":         intent,
@@ -315,51 +427,46 @@ class FilGoalRAG:
                 "model_fallback": False,
                 "cached":         False,
                 "cache_reason":   "skipped_no_chunks",
-                "retrieval_ms":   retrieval_ms,
+                "retrieval_ms":   prep.retrieval_ms,
                 "llm_ms":         0,
                 "n_chunks":       0,
             }
 
-        context, sources = _build_context(chunks)
-        chunk_ids = [c.get("chunk_id", "") for c in chunks]
-        model = _model_for(intent)
-
-        # ── Cache lookup ──────────────────────────────────────────────────────
-        cached = cache.get(model, intent, chunk_ids, query)
-        if cached is not None:
-            log.info(
-                f"  ↩ cache hit ({model})",
-                extra={"intent": intent, "model": model, "cache_reason": "hit"},
-            )
+        if prep.cached_answer is not None:
             return {
-                "answer":         cached,
+                "answer":         prep.cached_answer,
                 "intent":         intent,
-                "sources":        sources[:3],
+                "sources":        prep.sources[:3],
                 "model":          model,
                 "model_fallback": False,
                 "cached":         True,
                 "cache_reason":   "hit",
-                "retrieval_ms":   retrieval_ms,
+                "retrieval_ms":   prep.retrieval_ms,
                 "llm_ms":         0,
-                "n_chunks":       len(chunks),
+                "n_chunks":       len(prep.chunks),
             }
 
-        # ── Token budget guard ────────────────────────────────────────────────
-        system_prompt = prompts.INTENT_PROMPTS[intent]
-        user_prompt   = _build_user_prompt(context, query, conversation_context)
-        prompt_tokens = cache.estimate_tokens(system_prompt) + cache.estimate_tokens(user_prompt)
-        if prompt_tokens + MAX_TOKENS > MAX_PROMPT_TOKENS:
-            log.warning(f"  prompt too large ({prompt_tokens} est. tokens) — truncating context")
-            # Halve the context — naive but predictable
-            context = context[: len(context) // 2]
-            user_prompt = _build_user_prompt(context, query, conversation_context)
+        sources = prep.sources
+        chunks = prep.chunks
+        chunk_ids = prep.chunk_ids
+        conv_key = prep.conv_key
+        system_prompt, user_prompt = prep.system_prompt, prep.user_prompt
+        retrieval_ms = prep.retrieval_ms
 
-        # ── Call Groq with automatic big → small fallback on rate-limit ───────
+        # ── Call Groq with a consistent fallback chain ─────────────────────────
         # When the large model's daily quota or per-minute cap trips a 429,
         # automatically retry on the small model. This rescues most queries
         # instead of returning ERROR_ANSWER. The fallback is only attempted when
-        # the *intended* model was the large model — if the small model itself
-        # rate-limits we have nowhere to fall back to, and we surface the error.
+        # the *intended* model was the large model and the operator has NOT set
+        # FILGOAL_FORCE_BIG_MODEL=1 — forced-big means the small model was
+        # deliberately ruled out (buggy 20b), so a 429 there surfaces an error.
+        #
+        # Empty completions (RuntimeError from _groq_completion, the
+        # gpt-oss-20b runaway-reasoning signature) get exactly one retry on the
+        # big model. A second failure is terminal — no retry loops.
+        #
+        # Both models exhausted (or any terminal error) → ERROR_ANSWER, which is
+        # NEVER cached (the cache write below only fires for real answers).
         #
         # We do NOT "wait until refresh" — that could block a user-facing
         # request for hours. Eval / offline workflows that want to avoid
@@ -368,11 +475,28 @@ class FilGoalRAG:
         cache_reason      = "miss"
         effective_model   = model     # the model that actually answered
         fallback_used     = False
+        force_big         = _is_force_big()
         t1 = time.monotonic()
         try:
             answer_text = self._groq_completion(model, system_prompt, user_prompt)
+            if not answer_text.strip() and effective_model != GROQ_MODEL_BIG:
+                # Defensive: a stubbed/odd SDK that returns "" instead of
+                # raising gets the same single big-model retry as a raised
+                # empty-completion below. Handled locally (never re-raised)
+                # so it can't chain into the except handlers below.
+                log.warning(
+                    f"  Empty completion on {model} — retrying once on {GROQ_MODEL_BIG}"
+                )
+                try:
+                    answer_text     = self._groq_completion(GROQ_MODEL_BIG, system_prompt, user_prompt)
+                    effective_model = GROQ_MODEL_BIG
+                    fallback_used   = True
+                except Exception as e2:
+                    log.error(f"  Big-model retry also failed: {type(e2).__name__}: {e2}")
+                    answer_text = ERROR_ANSWER
+                    cache_reason = "skipped_error"
         except RateLimitError:
-            if model != GROQ_MODEL_SMALL:
+            if model != GROQ_MODEL_SMALL and not force_big:
                 log.warning(
                     f"  Groq RateLimitError on {model} — falling back to {GROQ_MODEL_SMALL}"
                 )
@@ -397,17 +521,38 @@ class FilGoalRAG:
                     answer_text = ERROR_ANSWER
                     cache_reason = "skipped_error"
             else:
-                log.warning(
-                    f"  Groq RateLimitError on {model} — already on smallest model, no fallback available"
-                )
+                reason = "forced-big, no fallback" if force_big else "already on smallest model, no fallback available"
+                log.warning(f"  Groq RateLimitError on {model} — {reason}")
                 answer_text = ERROR_ANSWER
                 cache_reason = "skipped_rate_limit"
+        except RuntimeError as e:
+            # Empty completion content from _groq_completion — the 20b guard.
+            # Exactly one retry on the big model; a second failure is terminal.
+            if model != GROQ_MODEL_BIG:
+                log.warning(f"  Empty completion on {model} ({e}) — retrying once on {GROQ_MODEL_BIG}")
+                try:
+                    answer_text     = self._groq_completion(GROQ_MODEL_BIG, system_prompt, user_prompt)
+                    effective_model = GROQ_MODEL_BIG
+                    fallback_used   = True
+                except Exception as e2:
+                    log.error(f"  Big-model retry also failed: {type(e2).__name__}: {e2}")
+                    answer_text = ERROR_ANSWER
+                    cache_reason = "skipped_error"
+            else:
+                log.error(f"  Empty completion on {model} with no bigger model to retry")
+                answer_text = ERROR_ANSWER
+                cache_reason = "skipped_error"
         except APIStatusError as e:
             log.error(f"  Groq APIStatusError status={getattr(e, 'status_code', '?')} ({type(e).__name__})")
             answer_text = ERROR_ANSWER
             cache_reason = "skipped_error"
         except Exception as e:
             log.error(f"  Groq error: {type(e).__name__}: {e}")
+            answer_text = ERROR_ANSWER
+            cache_reason = "skipped_error"
+
+        # A retry that itself returned empty is still a failure, not an answer.
+        if answer_text and not answer_text.strip():
             answer_text = ERROR_ANSWER
             cache_reason = "skipped_error"
 
@@ -419,7 +564,8 @@ class FilGoalRAG:
         # previous run cached a small-model fallback answer, we want to try the
         # large model again first.
         if answer_text and answer_text != ERROR_ANSWER:
-            cache.put(effective_model, intent, chunk_ids, query, answer_text)
+            cache.put(effective_model, intent, chunk_ids, query, answer_text,
+                        conversation_key=conv_key)
 
         llm_ms = int((time.monotonic() - t1) * 1000)
 
@@ -449,10 +595,15 @@ class FilGoalRAG:
         'answer' grows token-by-token for fresh LLM calls. Cache hits,
         out-of-scope, and error paths yield a single complete result.
         The final yield contains the complete, post-processed answer."""
-        intent = detect_intent(query)
+        filters: dict = {}
+        if filter_type   is not None: filters["filter_type"]   = filter_type
+        if filter_league is not None: filters["filter_league"] = filter_league
+        if filter_team   is not None: filters["filter_team"]   = filter_team
+        prep = self._prepare(query, conversation_context, filters)
+        intent, model = prep.intent, prep.model
 
         # ── Out-of-scope short-circuit ────────────────────────────────────
-        if intent == "out_of_scope":
+        if prep.out_of_scope:
             yield {
                 "answer": OUT_OF_SCOPE_ANSWER, "intent": intent,
                 "sources": [], "model": None, "model_fallback": False,
@@ -461,46 +612,31 @@ class FilGoalRAG:
             }
             return
 
-        filters = dict(FILTER_MAP.get(intent, {}))
-        if filter_type   is not None: filters["filter_type"]   = filter_type
-        if filter_league is not None: filters["filter_league"] = filter_league
-        if filter_team   is not None: filters["filter_team"]   = filter_team
-
-        t0 = time.monotonic()
-        chunks = self.retriever.retrieve(query, top_k=TOP_K, **filters)
-        retrieval_ms = int((time.monotonic() - t0) * 1000)
-
-        if not chunks:
+        if not prep.chunks:
             yield {
                 "answer": REFUSAL_ANSWER, "intent": intent,
                 "sources": [], "model": None, "model_fallback": False,
                 "cached": False, "cache_reason": "skipped_no_chunks",
-                "retrieval_ms": retrieval_ms, "llm_ms": 0, "n_chunks": 0,
+                "retrieval_ms": prep.retrieval_ms, "llm_ms": 0, "n_chunks": 0,
             }
             return
-
-        context, sources = _build_context(chunks)
-        chunk_ids = [c.get("chunk_id", "") for c in chunks]
-        model = _model_for(intent)
 
         # ── Cache hit → yield once ────────────────────────────────────────
-        cached = cache.get(model, intent, chunk_ids, query)
-        if cached is not None:
+        if prep.cached_answer is not None:
             yield {
-                "answer": cached, "intent": intent,
-                "sources": sources[:3], "model": model,
+                "answer": prep.cached_answer, "intent": intent,
+                "sources": prep.sources[:3], "model": model,
                 "model_fallback": False, "cached": True,
-                "cache_reason": "hit", "retrieval_ms": retrieval_ms,
-                "llm_ms": 0, "n_chunks": len(chunks),
+                "cache_reason": "hit", "retrieval_ms": prep.retrieval_ms,
+                "llm_ms": 0, "n_chunks": len(prep.chunks),
             }
             return
 
-        system_prompt = prompts.INTENT_PROMPTS[intent]
-        user_prompt = _build_user_prompt(context, query, conversation_context)
-        prompt_tokens = cache.estimate_tokens(system_prompt) + cache.estimate_tokens(user_prompt)
-        if prompt_tokens + MAX_TOKENS > MAX_PROMPT_TOKENS:
-            context = context[: len(context) // 2]
-            user_prompt = _build_user_prompt(context, query, conversation_context)
+        chunks, sources = prep.chunks, prep.sources
+        chunk_ids = prep.chunk_ids
+        conv_key = prep.conv_key
+        system_prompt, user_prompt = prep.system_prompt, prep.user_prompt
+        retrieval_ms = prep.retrieval_ms
 
         # ── Stream from Groq ──────────────────────────────────────────────
         base_result: dict = {
@@ -514,15 +650,18 @@ class FilGoalRAG:
         stream_ok = False
         t1 = time.monotonic()
 
+        stream_raised = False
         try:
             for token in self._groq_completion_stream(model, system_prompt, user_prompt):
                 answer_parts.append(token)
                 yield {**base_result, "answer": "".join(answer_parts), "llm_ms": 0}
-            stream_ok = bool(answer_parts)
+            stream_ok = bool("".join(answer_parts).strip())
         except RateLimitError:
+            stream_raised = True
             # Fallback to small model (non-streaming — fallback is rare and
-            # getting *an* answer matters more than streaming it).
-            if model != GROQ_MODEL_SMALL:
+            # getting *an* answer matters more than streaming it). Skipped
+            # under FILGOAL_FORCE_BIG_MODEL for the same reason as answer().
+            if model != GROQ_MODEL_SMALL and not _is_force_big():
                 log.warning(f"  Stream rate-limited on {model} — falling back to {GROQ_MODEL_SMALL}")
                 try:
                     fb = self._groq_completion(GROQ_MODEL_SMALL, system_prompt, user_prompt)
@@ -535,17 +674,50 @@ class FilGoalRAG:
                     answer_parts = [ERROR_ANSWER]
             else:
                 answer_parts = [ERROR_ANSWER]
+        except RuntimeError as e:
+            stream_raised = True
+            # Empty completion raised mid-stream: one big-model retry, else error.
+            if model != GROQ_MODEL_BIG:
+                log.warning(f"  Empty completion mid-stream on {model} ({e}) — retrying once on {GROQ_MODEL_BIG}")
+                try:
+                    fb = self._groq_completion(GROQ_MODEL_BIG, system_prompt, user_prompt)
+                    answer_parts = [fb]
+                    effective_model = GROQ_MODEL_BIG
+                    fallback_used = True
+                    stream_ok = bool(fb.strip())
+                except Exception as e2:
+                    log.error(f"  Big-model retry also failed: {type(e2).__name__}: {e2}")
+                    answer_parts = [ERROR_ANSWER]
+            else:
+                answer_parts = [ERROR_ANSWER]
         except Exception as e:
+            stream_raised = True
             log.error(f"  Stream error: {type(e).__name__}: {e}")
             if not answer_parts:
                 answer_parts = [ERROR_ANSWER]
+
+        if not stream_raised and not stream_ok and model != GROQ_MODEL_BIG:
+            # Silent empty stream (no tokens, no error) = empty completion:
+            # exactly one non-streaming retry on the big model. Its failure is
+            # terminal — handled locally so it can't chain into another fallback.
+            log.warning(f"  Empty stream on {model} — retrying once on {GROQ_MODEL_BIG}")
+            try:
+                fb = self._groq_completion(GROQ_MODEL_BIG, system_prompt, user_prompt)
+                if fb.strip():
+                    answer_parts = [fb]
+                    effective_model = GROQ_MODEL_BIG
+                    fallback_used = True
+                    stream_ok = True
+            except Exception as e:
+                log.error(f"  Big-model retry also failed: {type(e).__name__}: {e}")
 
         llm_ms = int((time.monotonic() - t1) * 1000)
         final_answer = _strip_template_leaks("".join(answer_parts))
 
         # Only cache complete, non-error answers
         if stream_ok and final_answer and final_answer != ERROR_ANSWER:
-            cache.put(effective_model, intent, chunk_ids, query, final_answer)
+            cache.put(effective_model, intent, chunk_ids, query, final_answer,
+                        conversation_key=conv_key)
 
         yield {
             "answer": final_answer, "intent": intent,

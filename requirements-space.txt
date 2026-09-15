@@ -1,0 +1,7 @@
+# FilGoalBot — Hugging Face Space requirements.
+# The Space runs on the Gradio SDK (see SPACE_README.md, app_file: app.py),
+# so it needs everything in requirements.txt PLUS gradio for the launcher
+# shim in app.py (gr.mount_gradio_app). CI and the daily refresh workflow
+# install only requirements.txt and skip these ~100 extra packages.
+-r requirements.txt
+gradio==4.44.0

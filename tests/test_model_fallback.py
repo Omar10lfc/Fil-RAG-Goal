@@ -33,6 +33,14 @@ def isolated_cache_dir(monkeypatch, tmp_path):
     shutil.rmtree(tmp_path, ignore_errors=True)
 
 
+@pytest.fixture(autouse=True)
+def clean_routing_env(monkeypatch):
+    """Routing is env-driven — every case declares its own env so the
+    operator's shell (or CI) can't leak FILGOAL_FORCE_* into the suite."""
+    monkeypatch.delenv("FILGOAL_FORCE_SMALL_MODEL", raising=False)
+    monkeypatch.delenv("FILGOAL_FORCE_BIG_MODEL", raising=False)
+
+
 def _build_rag_with_fake_retriever(chunks: list[dict]) -> FilGoalRAG:
     """Construct a FilGoalRAG instance whose retriever returns `chunks` and
     whose Groq client is a no-op stub. The Groq call itself is patched
@@ -156,3 +164,92 @@ def test_fallback_answer_is_cached_under_small_model_key():
     chunk_ids = ["c1"]
     assert cache.get(GROQ_MODEL_SMALL, "team_news", chunk_ids, "ما أخبار مران الأهلي؟") == "fallback answer"
     assert cache.get(GROQ_MODEL_BIG,   "team_news", chunk_ids, "ما أخبار مران الأهلي؟") is None
+
+
+def test_force_big_model_env_routes_extractive_to_big(monkeypatch):
+    """FILGOAL_FORCE_BIG_MODEL=1 routes even extractive intents to the big
+    model (the operator-visible replacement for the old pytest-sniffing hack)."""
+    monkeypatch.setenv("FILGOAL_FORCE_BIG_MODEL", "1")
+    rag = _build_rag_with_fake_retriever([_chunk()])
+    call_log: list[str] = []
+
+    def fake_completion(model: str, system_prompt: str, user_prompt: str) -> str:
+        call_log.append(model)
+        return "big answer"
+
+    rag._groq_completion = fake_completion  # type: ignore[method-assign]
+
+    # match_result is extractive → would use the small model without the flag.
+    result = rag.answer("ما نتيجة مباراة الأهلي؟")
+
+    assert call_log == [GROQ_MODEL_BIG]
+    assert result["model"] == GROQ_MODEL_BIG
+    assert result["model_fallback"] is False
+
+
+def test_empty_completion_retries_once_on_big_model():
+    """Empty completion on the small model (the gpt-oss-20b runaway-reasoning
+    signature) → exactly one retry on the big model."""
+    rag = _build_rag_with_fake_retriever([_chunk()])
+    call_log: list[str] = []
+
+    def fake_completion(model: str, system_prompt: str, user_prompt: str) -> str:
+        call_log.append(model)
+        if model == GROQ_MODEL_SMALL:
+            return "   "  # empty completion, as the buggy 20b returns
+        return "big-model answer"
+
+    rag._groq_completion = fake_completion  # type: ignore[method-assign]
+
+    result = rag.answer("ما نتيجة مباراة الأهلي؟")
+
+    assert call_log == [GROQ_MODEL_SMALL, GROQ_MODEL_BIG]
+    assert result["answer"]         == "big-model answer"
+    assert result["model"]          == GROQ_MODEL_BIG
+    assert result["model_fallback"] is True
+
+
+def test_force_big_rate_limit_returns_error_without_small_fallback(monkeypatch):
+    """Under FILGOAL_FORCE_BIG_MODEL=1 a 429 on big surfaces the error — the
+    operator ruled the small model out, so falling back to it is wrong."""
+    monkeypatch.setenv("FILGOAL_FORCE_BIG_MODEL", "1")
+    rag = _build_rag_with_fake_retriever([_chunk()])
+    call_log: list[str] = []
+
+    def fake_completion(model: str, system_prompt: str, user_prompt: str) -> str:
+        call_log.append(model)
+        raise _make_rate_limit_error()
+
+    rag._groq_completion = fake_completion  # type: ignore[method-assign]
+
+    result = rag.answer("ما أخبار مران الأهلي؟")
+
+    assert call_log == [GROQ_MODEL_BIG], "must not touch the ruled-out small model"
+    assert result["answer"]         == ERROR_ANSWER
+    assert result["model_fallback"] is False
+    assert result["cache_reason"]   == "skipped_rate_limit"
+
+
+def test_no_retry_on_second_failure():
+    """Small model empty → big retry also fails → ERROR_ANSWER after exactly
+    two calls. Failures never loop."""
+    rag = _build_rag_with_fake_retriever([_chunk()])
+    call_log: list[str] = []
+
+    def fake_completion(model: str, system_prompt: str, user_prompt: str) -> str:
+        call_log.append(model)
+        if model == GROQ_MODEL_SMALL:
+            raise RuntimeError("empty completion content")
+        raise RuntimeError("empty completion content")
+
+    rag._groq_completion = fake_completion  # type: ignore[method-assign]
+
+    result = rag.answer("ما نتيجة مباراة الأهلي؟")
+
+    assert call_log == [GROQ_MODEL_SMALL, GROQ_MODEL_BIG]
+    assert result["answer"]         == ERROR_ANSWER
+    assert result["model_fallback"] is False
+    assert result["cache_reason"]   == "skipped_error"
+    chunk_ids = ["c0"]
+    assert cache.get(GROQ_MODEL_BIG,   "match_result", chunk_ids, "ما نتيجة مباراة الأهلي؟") is None
+    assert cache.get(GROQ_MODEL_SMALL, "match_result", chunk_ids, "ما نتيجة مباراة الأهلي؟") is None

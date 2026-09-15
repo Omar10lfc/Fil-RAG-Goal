@@ -13,23 +13,26 @@ venv/
 dist/
 build/
 
-# Data — raw and processed (too large for git)
+# Data — raw stays local-only (re-scraped daily, too large for git).
+# Processed chunks + FAISS artifacts are tracked via Git LFS (see .gitattributes)
+# so the daily refresh bot's commits actually land.
 data/raw/articles.jsonl
 data/raw/.scraped_ids
-data/processed/chunks.jsonl
 data/processed/stats.json
-kaggle_notebook.py
-# FAISS index (large binary files — rebuild from Kaggle)
-faiss_index/index.bin
-faiss_index/metadata.jsonl
+# NOTE: faiss_index/index.bin, faiss_index/metadata.jsonl and
+# data/processed/chunks.jsonl are LFS-tracked — do NOT re-ignore them here.
+# The global *.bin rule below is scoped so it never matches faiss_index/.
 
 # HuggingFace model cache
 C:/HuggingFaceCache/
 *.safetensors
-*.bin
+# Model weight binaries elsewhere (narrowed: faiss_index/index.bin is LFS, not this)
+*.pt
+*.pth
+model*.bin
 
-# Evaluation output (generated, not source)
-evaluation/report.json
+# Evaluation output: the canonical report IS tracked (single report home);
+# per-run comparisons live alongside it (report-llama-baseline, report-gpt-oss).
 
 # Disk-based LLM response cache (qa_engine/cache.py)
 .cache/
@@ -53,3 +56,4 @@ desktop.ini
 # Hugging Face Spaces deployment artifacts (deployed separately)
 app.py
 SPACE_README.md
+plan.txt

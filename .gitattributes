@@ -1,0 +1,9 @@
+# FilGoalBot — Git LFS tracking for large corpus artifacts.
+# The daily refresh workflow commits these, so they must NOT be gitignored.
+# data/raw/ stays ignored (re-scraped, too large). ~90MB initial LFS payload.
+# Caveat: GitHub LFS free tier ≈ 1GB/mo bandwidth — if refresh traffic exceeds
+# it, migrate the corpus to a Hugging Face Dataset repo and `huggingface-cli
+# download` it in refresh.yml instead (see README Deployment section).
+faiss_index/index.bin filter=lfs diff=lfs merge=lfs -text
+faiss_index/metadata.jsonl filter=lfs diff=lfs merge=lfs -text
+data/processed/chunks.jsonl filter=lfs diff=lfs merge=lfs -text

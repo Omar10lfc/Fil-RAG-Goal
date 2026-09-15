@@ -5,22 +5,27 @@ FastAPI wrapper around FilGoalRAG.
 
 Endpoints:
     POST /ask           — main Q&A endpoint
+    POST /ask/stream    — SSE token-streaming endpoint
     GET  /health        — readiness check (runs a real retrieval)
-    GET  /              — API info
+    GET  /              — API info / static frontend
 
 Run locally:
     uvicorn api.main:app --reload --port 8000
 
 Environment:
     GROQ_API_KEY                — required
-    FILGOAL_ALLOWED_ORIGINS     — comma-separated; default = "http://127.0.0.1:7860,http://localhost:7860"
+    FILGOAL_ALLOWED_ORIGINS     — comma-separated; default = "" (same-origin only)
     FILGOAL_RATE_LIMIT          — slowapi limit string; default = "20/minute"
+    FILGOAL_TRUST_PROXY         — "1" (default) honours X-Forwarded-For for
+                                  rate-limit keying; "0" uses the socket IP
     FILGOAL_LOG_FORMAT          — "text" (default) or "json" for structured logs
 """
 
 import asyncio
+import json
 import logging
 import os
+import pathlib
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -28,6 +33,8 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -42,13 +49,36 @@ log = logging.getLogger("api")
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
+# Same-origin by default (empty list = no CORS headers). Set
+# FILGOAL_ALLOWED_ORIGINS to a comma-separated list when the frontend is
+# served from another origin. The old Gradio default (port 7860) is gone —
+# the static frontend is served from this same app (see _STATIC_DIR below).
 ALLOWED_ORIGINS = [
-    o.strip() for o in os.getenv(
-        "FILGOAL_ALLOWED_ORIGINS",
-        "http://127.0.0.1:7860,http://localhost:7860",
-    ).split(",") if o.strip()
+    o.strip() for o in os.getenv("FILGOAL_ALLOWED_ORIGINS", "").split(",") if o.strip()
 ]
 RATE_LIMIT = os.getenv("FILGOAL_RATE_LIMIT", "20/minute")
+
+
+def _is_trust_proxy() -> bool:
+    return os.getenv("FILGOAL_TRUST_PROXY", "1").strip() in ("1", "true", "yes")
+
+
+def _client_key(request: Request) -> str:
+    """Rate-limit key: leftmost X-Forwarded-For hop when behind a trusted
+    proxy, else the socket IP.
+
+    Behind the HF Space proxy every client shares one socket IP, so keying on
+    it turns "20/minute" into an effective GLOBAL cap. With FILGOAL_TRUST_PROXY=1
+    (default) we key on the client IP the proxy reports instead.
+    Caveat: only trust XFF when a proxy you control sets it — a directly
+    exposed server with TRUST_PROXY=1 lets clients spoof arbitrary keys and
+    dodge limits. Set FILGOAL_TRUST_PROXY=0 in that deployment.
+    """
+    if _is_trust_proxy():
+        xff = request.headers.get("x-forwarded-for", "")
+        if xff.strip():
+            return xff.split(",")[0].strip()
+    return get_remote_address(request)
 
 
 def _assert_groq_key_present() -> None:
@@ -85,7 +115,7 @@ async def lifespan(app: FastAPI):
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 
-limiter = Limiter(key_func=get_remote_address, default_limits=[RATE_LIMIT])
+limiter = Limiter(key_func=_client_key, default_limits=[RATE_LIMIT])
 
 app = FastAPI(
     title="FilGoalBot API",
@@ -128,6 +158,11 @@ class AskRequest(BaseModel):
     filter_league: str | None = Field(None, examples=["egyptian_league", "premier_league"])
     filter_team:   str | None = Field(None, examples=["al_ahly", "zamalek"])
     filter_type:   str | None = Field(None, examples=["lineup", "match_result", "transfer"])
+    # Previous turn for follow-ups ("وماذا حدث بعدها؟") — the frontend sends
+    # the last {question, answer} exchange here (max 2,000 chars). Folded into
+    # the LLM prompt AND the cache key, so follow-ups never hit a stale
+    # standalone entry.
+    conversation_context: str | None = Field(None, max_length=2000, examples=["السؤال السابق: …\nالإجابة السابقة: …"])
 
 class Source(BaseModel):
     title:        str
@@ -165,8 +200,16 @@ class AskResponse(BaseModel):
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
+# Resolve the static frontend directory relative to this file.
+_STATIC_DIR = pathlib.Path(__file__).resolve().parent.parent / "frontend" / "static"
+
+
 @app.get("/")
 def root():
+    """Serve the custom frontend if available, otherwise return API info JSON."""
+    index = _STATIC_DIR / "index.html"
+    if index.is_file():
+        return FileResponse(str(index))
     return {
         "name":    "FilGoalBot API",
         "version": "1.1.0",
@@ -229,6 +272,7 @@ async def ask(req: AskRequest, request: Request):
             **({"filter_type":   req.filter_type}   if req.filter_type   else {}),
             **({"filter_league": req.filter_league} if req.filter_league else {}),
             **({"filter_team":   req.filter_team}   if req.filter_team   else {}),
+            **({"conversation_context": req.conversation_context} if req.conversation_context else {}),
         )
     except Exception as e:
         # Log type + message only, NOT the full traceback — Groq SDK frames
@@ -276,3 +320,114 @@ async def ask(req: AskRequest, request: Request):
         cache_reason=result.get("cache_reason", "miss"),
         request_id=rid,
     )
+
+
+def _sse(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@app.post(
+    "/ask/stream",
+    responses={
+        429: {"description": "Rate limit exceeded — retry after the window resets"},
+        503: {"description": "Model still loading or retriever unavailable"},
+        500: {"description": "Internal error generating answer (Groq API or pipeline failure)"},
+    },
+)
+@limiter.limit(RATE_LIMIT)
+async def ask_stream(req: AskRequest, request: Request):
+    """SSE token stream: `meta` (intent/model/sources) → `delta` per token →
+    `done` (latency, cache_reason, model_fallback) / `error`.
+
+    The blocking rag.answer_stream() generator runs in a worker thread and
+    pushes updates through an asyncio.Queue, so the event loop never blocks
+    and concurrent /ask requests keep flowing.
+    """
+    if not rag:
+        raise HTTPException(status_code=503, detail="Model still loading")
+
+    rid = request.state.request_id
+    log.info("ask_stream received", extra={"request_id": rid, "query_len": len(req.query)})
+    start = time.monotonic()
+
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    stream_rag = rag  # local bind for the worker closure
+    q = req.query
+    filters: dict = {}
+    if req.filter_type:   filters["filter_type"]   = req.filter_type
+    if req.filter_league: filters["filter_league"] = req.filter_league
+    if req.filter_team:   filters["filter_team"]   = req.filter_team
+    conv = req.conversation_context
+
+    def _pump() -> None:
+        try:
+            for update in stream_rag.answer_stream(query=q, **filters,
+                                                   conversation_context=conv):
+                asyncio.run_coroutine_threadsafe(queue.put(("update", update)), loop).result()
+        except Exception as e:
+            log.error(f"RAG stream error: {type(e).__name__}: {e}", extra={"request_id": rid})
+            asyncio.run_coroutine_threadsafe(
+                queue.put(("error", "Internal error generating answer")), loop).result()
+        finally:
+            asyncio.run_coroutine_threadsafe(queue.put(("end", None)), loop).result()
+
+    pump_task = loop.run_in_executor(None, _pump)
+
+    async def _events():
+        meta_sent = False
+        sent_len = 0
+        last: dict = {}
+        try:
+            while True:
+                kind, payload = await queue.get()
+                if kind == "error":
+                    yield _sse("error", {"detail": payload, "request_id": rid})
+                    return
+                if kind == "end":
+                    latency = int((time.monotonic() - start) * 1000)
+                    yield _sse("done", {
+                        "latency_ms":     latency,
+                        "retrieval_ms":   last.get("retrieval_ms", 0),
+                        "llm_ms":         last.get("llm_ms", 0),
+                        "model":          last.get("model"),
+                        "model_fallback": last.get("model_fallback", False),
+                        "cached":         last.get("cached", False),
+                        "cache_reason":   last.get("cache_reason", "miss"),
+                        "request_id":     rid,
+                    })
+                    log.info("ask_stream answered",
+                             extra={"request_id": rid, "intent": last.get("intent"),
+                                    "cached": last.get("cached", False)})
+                    return
+                # kind == "update"
+                last = payload
+                if not meta_sent:
+                    meta_sent = True
+                    yield _sse("meta", {
+                        "intent":  payload["intent"],
+                        "model":   payload.get("model"),
+                        "sources": payload.get("sources", []),
+                        "request_id": rid,
+                    })
+                text = payload.get("answer", "")
+                if len(text) > sent_len:
+                    yield _sse("delta", {"text": text[sent_len:]})
+                    sent_len = len(text)
+        finally:
+            await pump_task
+
+    return StreamingResponse(
+        _events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "X-Request-ID": rid,
+        },
+    )
+
+
+# ── Static files (must be last — catches /static/* paths) ─────────────────────
+if _STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")

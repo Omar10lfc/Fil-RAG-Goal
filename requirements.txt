@@ -12,5 +12,7 @@ pydantic==2.7.1
 numpy==1.26.4
 python-dotenv==1.0.1
 rank-bm25==0.2.2
-gradio==4.44.0
 slowapi==0.1.9
+# NOTE: gradio is NOT a core dependency (only the HF Space launcher app.py and
+# the legacy frontend/app.py Gradio UI need it). Space/mobile installs use
+# requirements-space.txt instead.

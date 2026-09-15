@@ -15,6 +15,7 @@ Saves Groq tokens on:
 
 import hashlib
 import json
+import logging
 import os
 import time
 import uuid
@@ -22,8 +23,15 @@ from pathlib import Path
 
 from qa_engine import prompts  # PROMPT_VERSION read lazily — see _make_key
 
+log = logging.getLogger("cache")
+
 CACHE_DIR = Path(".cache/llm")
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Key version 2: conversation_key folded into the hash (Phase 3). Pre-v2
+# entries can never hit again — they miss once and age out via the TTL sweep
+# in purge_expired(). Logged at startup by FilGoalRAG.load().
+CACHE_KEY_VERSION = 2
 
 # Default for unknown intents and ablation tests. Real intents are looked up
 # in INTENT_TTL_SECONDS below.
@@ -63,6 +71,7 @@ def _make_key(
     intent: str,
     chunk_ids: list[str],
     query: str,
+    conversation_key: str = "",
 ) -> str:
     payload = json.dumps(
         {
@@ -73,6 +82,11 @@ def _make_key(
             # produce different citation numbers in the answer.
             "chunks": chunk_ids,
             "query": query.strip().lower(),
+            # Follow-up context: without this, a cached answer for "من سجل؟"
+            # would shadow a later "وماذا عن الشوط الثاني؟" follow-up that
+            # resolves the same way. Empty for standalone queries.
+            "conv": conversation_key.strip().lower(),
+            "key_v": CACHE_KEY_VERSION,
             # PROMPT_VERSION folded in so editing prompts.py auto-invalidates
             # every prior cached answer. Without this, a prompt rewrite would
             # be shadowed by stale completions until the TTL expired.
@@ -88,13 +102,13 @@ def _make_key(
 
 
 def get(model: str, intent: str, chunk_ids: list[str], query: str,
-        ttl_seconds: int | None = None) -> str | None:
+        ttl_seconds: int | None = None, conversation_key: str = "") -> str | None:
     """Look up a cached answer. ttl_seconds=None → look up per-intent TTL
     (production default). Pass an explicit value to override (tests use 0
     to force staleness)."""
     if ttl_seconds is None:
         ttl_seconds = ttl_for(intent)
-    key = _make_key(model, intent, chunk_ids, query)
+    key = _make_key(model, intent, chunk_ids, query, conversation_key)
     path = CACHE_DIR / f"{key}.json"
     if not path.exists():
         return None
@@ -108,8 +122,8 @@ def get(model: str, intent: str, chunk_ids: list[str], query: str,
 
 
 def put(model: str, intent: str, chunk_ids: list[str], query: str,
-        answer: str) -> None:
-    key = _make_key(model, intent, chunk_ids, query)
+        answer: str, conversation_key: str = "") -> None:
+    key = _make_key(model, intent, chunk_ids, query, conversation_key)
     path = CACHE_DIR / f"{key}.json"
     # Atomic write: dump to a uniquely-named temp file in the same directory,
     # then os.replace() onto the final path. A concurrent get() therefore
@@ -134,6 +148,35 @@ def put(model: str, intent: str, chunk_ids: list[str], query: str,
         # clean it up.
         try:
             tmp.unlink()
+        except OSError:
+            pass
+    # Size bound (FILGOAL_CACHE_MAX_ENTRIES, default 5,000): evict oldest
+    # entries so unique-query traffic can't grow .cache/llm/ forever.
+    _enforce_size_cap()
+
+
+def max_entries() -> int:
+    """Size bound for .cache/llm/. Unique-query traffic would otherwise grow
+    the directory forever (TTL only *ignores* stale entries; purge_expired()
+    only runs at startup). Read per call so tests can monkeypatch the env."""
+    try:
+        return max(1, int(os.getenv("FILGOAL_CACHE_MAX_ENTRIES", "5000")))
+    except ValueError:
+        return 5000
+
+
+def _enforce_size_cap() -> None:
+    """Evict oldest-by-mtime entries when the directory exceeds max_entries().
+    Best-effort: eviction failures are swallowed — losing the cleanup is
+    harmless, crashing the request is not."""
+    try:
+        files = sorted(CACHE_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime)
+    except OSError:
+        return
+    excess = len(files) - max_entries()
+    for stale in files[:max(0, excess)]:
+        try:
+            stale.unlink()
         except OSError:
             pass
 

@@ -1,12 +1,11 @@
 name: Refresh corpus
 
-# Scrape newest articles, rebuild chunks, and commit updated data.
+# Scrape newest articles, rebuild chunks + FAISS index, and commit updated data.
 # Runs daily at midnight UTC or on manual trigger.
 #
-# NOTE: The FAISS index rebuild step requires a script that embeds the new
-# chunks and writes faiss_index/index.bin + metadata.jsonl.  If your current
-# workflow rebuilds the index as part of preprocessing.pipeline, this will
-# work as-is.  Otherwise, add the index-build command where indicated below.
+# Large artifacts (faiss_index/index.bin, faiss_index/metadata.jsonl,
+# data/processed/chunks.jsonl) are tracked via Git LFS — see .gitattributes.
+# data/raw/ stays gitignored.
 
 on:
   schedule:
@@ -23,6 +22,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Install Git LFS
+        run: git lfs install
 
       - uses: actions/setup-python@v5
         with:
@@ -50,14 +54,16 @@ jobs:
       - name: Run preprocessing pipeline
         run: python -m preprocessing.pipeline
 
-      # TODO: If the FAISS index is built by a separate script, add it here:
-      # - name: Rebuild FAISS index
-      #   run: python -m preprocessing.build_index
+      - name: Rebuild FAISS index (incremental)
+        run: python -m preprocessing.build_index
+
+      - name: Smoke-test FAISS index (gate before commit)
+        run: python -m preprocessing.build_index --smoke-only
 
       - name: Commit updated corpus (if changed)
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/ faiss_index/
+          git add data/processed/chunks.jsonl faiss_index/
           git diff --cached --quiet || git commit -m "chore: daily corpus refresh [skip ci]"
           git push

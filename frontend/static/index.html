@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FilGoalBot — مساعد كرة القدم الذكي</title>
+    <meta name="description" content="مساعد ذكي للإجابة عن أسئلة كرة القدم المصرية والعربية والعالمية باستخدام أحدث أخبار FilGoal">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>">
+</head>
+<body>
+    <div class="app">
+        <!-- ── Header ──────────────────────────────────────────── -->
+        <header class="header">
+            <div class="header-brand">
+                <span class="header-icon">⚽</span>
+                <h1><span class="accent">FilGoal</span>Bot</h1>
+            </div>
+            <button id="theme-toggle" class="btn-icon" title="تبديل المظهر" aria-label="Toggle theme">
+                <span class="theme-icon">☀️</span>
+            </button>
+        </header>
+
+        <!-- ── Chat area ───────────────────────────────────────── -->
+        <main class="chat-area">
+            <!-- Empty state (visible when no messages) -->
+            <div id="empty-state" class="empty-state">
+                <div class="empty-hero">
+                    <div class="empty-icon">⚽</div>
+                    <h2>مرحباً بك في <span class="accent">FilGoal</span>Bot</h2>
+                    <p>اسألني عن نتائج المباريات، التشكيلات، أخبار الانتقالات، وأي شيء يخص كرة القدم</p>
+                </div>
+                <div class="example-grid" id="example-grid">
+                    <button class="example-chip" data-query="ما نتيجة مباراة بيراميدز والجيش الملكي؟">
+                        <span class="chip-icon">🏆</span>
+                        <span>ما نتيجة مباراة بيراميدز والجيش الملكي؟</span>
+                    </button>
+                    <button class="example-chip" data-query="ما تشكيل الأهلي أمام المقاولون العرب؟">
+                        <span class="chip-icon">📋</span>
+                        <span>ما تشكيل الأهلي أمام المقاولون العرب؟</span>
+                    </button>
+                    <button class="example-chip" data-query="آخر أخبار محمد صلاح في ليفربول">
+                        <span class="chip-icon">⚽</span>
+                        <span>آخر أخبار محمد صلاح في ليفربول</span>
+                    </button>
+                    <button class="example-chip" data-query="آخر صفقات الزمالك في الميركاتو؟">
+                        <span class="chip-icon">🔄</span>
+                        <span>آخر صفقات الزمالك في الميركاتو؟</span>
+                    </button>
+                    <button class="example-chip" data-query="من سجل في مباراة الأهلي والاتحاد؟">
+                        <span class="chip-icon">🌍</span>
+                        <span>من سجل في مباراة الأهلي والاتحاد؟</span>
+                    </button>
+                    <button class="example-chip" data-query="أخبار مران الزمالك قبل مباراة أبطال إفريقيا">
+                        <span class="chip-icon">📰</span>
+                        <span>أخبار مران الزمالك قبل مباراة أبطال إفريقيا</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Messages container -->
+            <div id="messages" class="messages"></div>
+        </main>
+
+        <!-- ── Input bar ───────────────────────────────────────── -->
+        <div class="input-bar">
+            <div class="input-container">
+                <textarea
+                    id="query-input"
+                    placeholder="اكتب سؤالك هنا... مثال: من سجل هدف الأهلي؟"
+                    rows="1"
+                    maxlength="500"
+                    aria-label="اكتب سؤالك"
+                ></textarea>
+                <button id="send-btn" class="btn-send" title="إرسال" aria-label="إرسال">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 2L11 13"></path>
+                        <path d="M22 2L15 22L11 13L2 9L22 2Z"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="input-hint">
+                <span>اضغط <kbd>Enter</kbd> للإرسال · <kbd>Shift+Enter</kbd> لسطر جديد</span>
+                <button id="clear-btn" class="btn-clear" title="مسح المحادثة">🗑️ مسح</button>
+            </div>
+        </div>
+
+        <!-- ── Footer ──────────────────────────────────────────── -->
+        <footer class="footer">
+            <span class="accent-text">FilGoal</span>Bot · Powered by RAG + Groq
+        </footer>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
