@@ -78,6 +78,64 @@ def _tokenize(text: str) -> list[str]:
     return tokens
 
 
+# ─── Dialect → MSA query expansion (BM25 only) ─────────────────────────────
+# Corpus is MSA, queries are often Egyptian dialect. Appended to BM25 query
+# tokens only — dense side untouched so this can't hurt semantic matching.
+# Append-only (never replaces) to avoid deleting the original signal.
+DIALECT_EXPANSIONS = {
+    "سكور": "سجل نتيجة",
+    "اتعادل": "تعادل",
+    "يتعادل": "تعادل",
+    "بكام": "بكم",
+    "امبارح": "امس",
+    "النهاردة": "اليوم",
+    "عايز": "يريد",
+    "ازاي": "كيف",
+    "ليه": "لماذا",
+    "مين": "من",
+    "امتي": "متى",
+    "فين": "اين",
+    "كسب": "فاز",
+    "يكسب": "يفوز",
+    "جون": "هدف",
+    "اجوان": "اهداف",
+}
+
+
+def _dialect_lookup() -> dict[str, list[str]]:
+    """Normalised single-token lookup built from DIALECT_EXPANSIONS.
+
+    Both query tokens and keys go through _tokenize() (which strips clitics),
+    so variants like السكور/سكور collapse to one entry — first wins, which
+    also prevents double-adding the same MSA tokens.
+    """
+    lookup: dict[str, list[str]] = {}
+    for raw, msa in DIALECT_EXPANSIONS.items():
+        keys = _tokenize(raw)
+        if len(keys) == 1:
+            lookup.setdefault(keys[0], _tokenize(msa))
+    return lookup
+
+
+_DIALECT_LOOKUP = _dialect_lookup()
+
+
+def _expand_dialect(tokens: list[str]) -> list[str]:
+    """Append MSA equivalents for known Egyptian-dialect tokens.
+
+    Append-only (never replaces) and deduped — each MSA token is added at
+    most once so colliding variants can't double-weight the BM25 query.
+    """
+    expanded = list(tokens)
+    seen = set(tokens)
+    for tok in tokens:
+        for add in _DIALECT_LOOKUP.get(tok, ()):
+            if add not in seen:
+                seen.add(add)
+                expanded.append(add)
+    return expanded
+
+
 # ─── Recency helper ──────────────────────────────────────────────────────────
 
 def _recency_multiplier(pub_date: str, now: datetime | None = None) -> float:
@@ -155,7 +213,7 @@ class FilGoalRetriever:
     def _sparse_search(self, query: str, top_k: int = TOP_K_BM25) -> list[tuple[int, float]]:
         if self.bm25 is None:                           # ablation: BM25 disabled
             return []
-        query_tokens = _tokenize(query)
+        query_tokens = _expand_dialect(_tokenize(query))
         scores = self.bm25.get_scores(query_tokens)
         top_indices = np.argsort(scores)[::-1][:top_k]
         return [(int(i), float(scores[i])) for i in top_indices]
@@ -181,12 +239,15 @@ class FilGoalRetriever:
         filter_type:   str | None = None,
         filter_league: str | None = None,
         filter_team:   str | None = None,
+        date_from:     str | None = None,   # ISO YYYY-MM-DD, inclusive
+        date_to:       str | None = None,   # ISO YYYY-MM-DD, inclusive
     ) -> list[dict]:
         """Hybrid search with optional metadata filters and recency boost.
         Returns top_k chunk dicts, deduplicated by article_id."""
         # When filters are active, pull a wider initial pool so filtering
         # doesn't starve top_k.
-        filters_active = any([filter_type, filter_league, filter_team])
+        filters_active = any([filter_type, filter_league, filter_team,
+                              date_from, date_to])
         bm25_n  = TOP_K_BM25  * (FILTERED_POOL_X if filters_active else 1)
         dense_n = TOP_K_DENSE * (FILTERED_POOL_X if filters_active else 1)
 
@@ -215,6 +276,13 @@ class FilGoalRetriever:
                 continue
             if filter_team   and filter_team not in chunk.get('teams', []):
                 continue
+            # Date-window filter (match_result "امبارح" queries). Chunks with
+            # missing/unparseable dates can't satisfy a dated question, so they
+            # are skipped only while a window is active.
+            if date_from or date_to:
+                day = str(chunk.get('pub_date', ''))[:10]
+                if not day or (date_from and day < date_from) or (date_to and day > date_to):
+                    continue
 
             aid = chunk['article_id']
             if aid in seen_article_ids:

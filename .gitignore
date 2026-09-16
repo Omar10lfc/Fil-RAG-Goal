@@ -19,6 +19,7 @@ build/
 data/raw/articles.jsonl
 data/raw/.scraped_ids
 data/processed/stats.json
+data/raw/articles.jsonl.pre-sort-bak
 # NOTE: faiss_index/index.bin, faiss_index/metadata.jsonl and
 # data/processed/chunks.jsonl are LFS-tracked — do NOT re-ignore them here.
 # The global *.bin rule below is scoped so it never matches faiss_index/.
@@ -57,3 +58,6 @@ desktop.ini
 app.py
 SPACE_README.md
 plan.txt
+session-ses_f5a3.md
+session-ses_f5f6.md
+IMPLEMENTATION_PLAN.md

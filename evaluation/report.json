@@ -2,182 +2,182 @@
   "ablation": [
     {
       "name": "BM25 only (baseline)",
-      "avg_kw_hit": 0.695,
-      "avg_kw_hit_rank1": 0.682,
-      "avg_recall_at_3": 0.68,
-      "avg_mrr": 0.719,
-      "avg_rouge1": 0.024,
-      "avg_latency_ms": 49.0,
+      "avg_kw_hit": 0.644,
+      "avg_kw_hit_rank1": 0.631,
+      "avg_recall_at_3": 0.608,
+      "avg_mrr": 0.67,
+      "avg_rouge1": 0.019,
+      "avg_latency_ms": 108.2,
       "per_intent": {
+        "transfer_news": {
+          "rouge1": 0.018,
+          "keyword_hit": 0.632,
+          "n_cases": 34
+        },
         "general_football": {
-          "rouge1": 0.015,
-          "keyword_hit": 0.801,
+          "rouge1": 0.013,
+          "keyword_hit": 0.736,
           "n_cases": 36
         },
-        "player_info": {
-          "rouge1": 0.026,
-          "keyword_hit": 0.657,
-          "n_cases": 25
-        },
-        "team_news": {
-          "rouge1": 0.027,
-          "keyword_hit": 0.672,
-          "n_cases": 31
-        },
-        "lineup": {
-          "rouge1": 0.03,
-          "keyword_hit": 0.68,
-          "n_cases": 19
-        },
         "match_result": {
-          "rouge1": 0.027,
+          "rouge1": 0.022,
           "keyword_hit": 0.613,
           "n_cases": 31
         },
-        "transfer_news": {
-          "rouge1": 0.023,
-          "keyword_hit": 0.716,
-          "n_cases": 34
+        "team_news": {
+          "rouge1": 0.022,
+          "keyword_hit": 0.645,
+          "n_cases": 31
+        },
+        "player_info": {
+          "rouge1": 0.021,
+          "keyword_hit": 0.597,
+          "n_cases": 25
+        },
+        "lineup": {
+          "rouge1": 0.024,
+          "keyword_hit": 0.605,
+          "n_cases": 19
         }
       }
     },
     {
       "name": "Dense only (FAISS)",
-      "avg_kw_hit": 0.708,
-      "avg_kw_hit_rank1": 0.733,
-      "avg_recall_at_3": 0.695,
-      "avg_mrr": 0.752,
-      "avg_rouge1": 0.029,
-      "avg_latency_ms": 340.3,
+      "avg_kw_hit": 0.698,
+      "avg_kw_hit_rank1": 0.716,
+      "avg_recall_at_3": 0.682,
+      "avg_mrr": 0.736,
+      "avg_rouge1": 0.026,
+      "avg_latency_ms": 103.9,
       "per_intent": {
+        "transfer_news": {
+          "rouge1": 0.025,
+          "keyword_hit": 0.765,
+          "n_cases": 34
+        },
         "general_football": {
           "rouge1": 0.017,
-          "keyword_hit": 0.75,
+          "keyword_hit": 0.764,
           "n_cases": 36
         },
-        "player_info": {
-          "rouge1": 0.028,
-          "keyword_hit": 0.677,
-          "n_cases": 25
-        },
-        "team_news": {
+        "match_result": {
           "rouge1": 0.032,
-          "keyword_hit": 0.702,
+          "keyword_hit": 0.64,
           "n_cases": 31
         },
-        "lineup": {
-          "rouge1": 0.035,
-          "keyword_hit": 0.693,
-          "n_cases": 19
-        },
-        "match_result": {
-          "rouge1": 0.035,
+        "team_news": {
+          "rouge1": 0.028,
           "keyword_hit": 0.656,
           "n_cases": 31
         },
-        "transfer_news": {
-          "rouge1": 0.03,
-          "keyword_hit": 0.75,
-          "n_cases": 34
+        "player_info": {
+          "rouge1": 0.025,
+          "keyword_hit": 0.657,
+          "n_cases": 25
+        },
+        "lineup": {
+          "rouge1": 0.032,
+          "keyword_hit": 0.675,
+          "n_cases": 19
         }
       }
     },
     {
       "name": "Hybrid BM25+FAISS (RRF)",
-      "avg_kw_hit": 0.704,
-      "avg_kw_hit_rank1": 0.756,
-      "avg_recall_at_3": 0.693,
-      "avg_mrr": 0.768,
-      "avg_rouge1": 0.027,
-      "avg_latency_ms": 325.1,
+      "avg_kw_hit": 0.715,
+      "avg_kw_hit_rank1": 0.75,
+      "avg_recall_at_3": 0.701,
+      "avg_mrr": 0.763,
+      "avg_rouge1": 0.024,
+      "avg_latency_ms": 592.7,
       "per_intent": {
+        "transfer_news": {
+          "rouge1": 0.023,
+          "keyword_hit": 0.75,
+          "n_cases": 34
+        },
         "general_football": {
-          "rouge1": 0.016,
-          "keyword_hit": 0.759,
+          "rouge1": 0.017,
+          "keyword_hit": 0.782,
           "n_cases": 36
         },
-        "player_info": {
-          "rouge1": 0.027,
-          "keyword_hit": 0.677,
-          "n_cases": 25
-        },
-        "team_news": {
-          "rouge1": 0.03,
-          "keyword_hit": 0.68,
-          "n_cases": 31
-        },
-        "lineup": {
-          "rouge1": 0.035,
-          "keyword_hit": 0.711,
-          "n_cases": 19
-        },
         "match_result": {
-          "rouge1": 0.031,
+          "rouge1": 0.029,
           "keyword_hit": 0.656,
           "n_cases": 31
         },
-        "transfer_news": {
-          "rouge1": 0.027,
-          "keyword_hit": 0.725,
-          "n_cases": 34
+        "team_news": {
+          "rouge1": 0.026,
+          "keyword_hit": 0.688,
+          "n_cases": 31
+        },
+        "player_info": {
+          "rouge1": 0.024,
+          "keyword_hit": 0.68,
+          "n_cases": 25
+        },
+        "lineup": {
+          "rouge1": 0.032,
+          "keyword_hit": 0.711,
+          "n_cases": 19
         }
       }
     }
   ],
   "rag": {
     "n_cases": 176,
-    "n_scored": 172,
-    "n_groq_failures": 4,
-    "avg_rouge1": 0.264,
-    "avg_embed_sim": 0.879,
-    "n_embed_sim": 147,
-    "avg_keyword_hit": 0.876,
-    "intent_accuracy": 0.977,
-    "refusal_accuracy": 1.0,
+    "n_scored": 174,
+    "n_groq_failures": 2,
+    "avg_rouge1": 0.229,
+    "avg_embed_sim": 0.869,
+    "n_embed_sim": 149,
+    "avg_keyword_hit": 0.844,
+    "intent_accuracy": 0.971,
+    "refusal_accuracy": 0.96,
     "n_refusal_cases": 25,
-    "avg_latency_ms": 3201.2,
+    "avg_latency_ms": 13146.4,
     "per_intent": {
       "match_result": {
-        "avg_rouge1": 0.368,
-        "avg_embed_sim": 0.889,
-        "avg_keyword_hit": 0.796,
+        "avg_rouge1": 0.291,
+        "avg_embed_sim": 0.867,
+        "avg_keyword_hit": 0.763,
         "intent_accuracy": 0.968,
         "n_cases": 31
       },
       "player_info": {
-        "avg_rouge1": 0.257,
-        "avg_embed_sim": 0.897,
-        "avg_keyword_hit": 0.963,
+        "avg_rouge1": 0.265,
+        "avg_embed_sim": 0.894,
+        "avg_keyword_hit": 0.917,
         "intent_accuracy": 1.0,
         "n_cases": 25
       },
       "lineup": {
-        "avg_rouge1": 0.221,
-        "avg_embed_sim": 0.822,
-        "avg_keyword_hit": 0.823,
+        "avg_rouge1": 0.177,
+        "avg_embed_sim": 0.82,
+        "avg_keyword_hit": 0.873,
         "intent_accuracy": 1.0,
-        "n_cases": 16
+        "n_cases": 17
       },
       "transfer_news": {
-        "avg_rouge1": 0.255,
-        "avg_embed_sim": 0.871,
+        "avg_rouge1": 0.24,
+        "avg_embed_sim": 0.882,
         "avg_keyword_hit": 0.863,
         "intent_accuracy": 1.0,
         "n_cases": 34
       },
       "team_news": {
-        "avg_rouge1": 0.269,
-        "avg_embed_sim": 0.895,
-        "avg_keyword_hit": 0.925,
+        "avg_rouge1": 0.221,
+        "avg_embed_sim": 0.88,
+        "avg_keyword_hit": 0.86,
         "intent_accuracy": 1.0,
         "n_cases": 31
       },
       "general_football": {
-        "avg_rouge1": 0.2,
-        "avg_embed_sim": 0.874,
-        "avg_keyword_hit": 0.881,
-        "intent_accuracy": 0.914,
-        "n_cases": 35
+        "avg_rouge1": 0.17,
+        "avg_embed_sim": 0.837,
+        "avg_keyword_hit": 0.817,
+        "intent_accuracy": 0.889,
+        "n_cases": 36
       }
     }
   }

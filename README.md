@@ -406,6 +406,22 @@ GitHub LFS free tier is ≈1 GB/mo bandwidth — if daily-refresh traffic
 exceeds it, migrate the corpus to a Hugging Face Dataset repo and
 `huggingface-cli download` it in `refresh.yml` instead.
 
+**Corpus growth.** `data/raw/articles.jsonl` (sorted ascending by `pub_date`, deduped by `article_id`) grew from the initial **3,849 articles (6,120 chunks, Jan–Mar 2026, snapshot 2026-03-15)** to **16,671 unique articles (snapshot 2026-09-16, range 2025-04-18 → 2026-09-16)**:
+
+| Month | Articles |
+| ----- | -------- |
+| 2026-01 | 1,936 |
+| 2026-02 | 1,872 |
+| 2026-03 | 1,950 |
+| 2026-04 | 1,966 |
+| 2026-05 | 1,819 |
+| 2026-06 | 2,148 |
+| 2026-07 | 1,976 |
+| 2026-08 | 1,869 |
+| 2026-09 (to 16th) | 1,133 |
+
+Jan–Sep 2026 is continuous (no zero-days from Jan-15 onward); only 2 pre-2026 rows remain. Re-run `pipeline + build_index` after each scrape so `chunks.jsonl` / FAISS track the raw growth.
+
 **Automated Daily Corpus Refresh.** A scheduled GitHub Actions workflow ([.github/workflows/refresh.yml](.github/workflows/refresh.yml)) runs daily at midnight UTC. It:
 1. Triggers the scraper in polite `--newest-only` mode to pull only new article IDs.
 2. Runs the preprocessing pipeline to clean and chunk new articles.

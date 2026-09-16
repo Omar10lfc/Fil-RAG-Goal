@@ -127,7 +127,7 @@ the README impact table with what/why/impact/risk.
       static frontend, `build_index.py`, `requirements-space.txt`,
       `docs/IMPLEMENTATION_PLAN.md`); test-suite count 68 → 87 passed.
 
-### Phase 5 — Retrieval quality — BOTH EXPERIMENTS REVERTED (negative results)
+### Phase 5 — Retrieval quality — RESTORED (needs fresh corpus to measure)
 
 Protocol: baseline = committed ablation (Hybrid RRF: MRR 0.768, Kw@1 0.756,
 R@3 0.693). After each experiment `python -m evaluation.evaluate
@@ -135,19 +135,18 @@ R@3 0.693). After each experiment `python -m evaluation.evaluate
 Kw@1 ≥ +1pp with R@3 not worse; else revert + log. Full runs on real corpus.
 
 - [x] Experiment 1 — `match_result` date-window filter (`qa_engine/temporal.py`,
-      `retrieve(date_from/date_to)`, wired in `_prepare`): **REVERTED**.
-      Result: MRR 0.768 → 0.762 (−0.6pp), Kw@1 0.756 → 0.750, R@3 0.693 → 0.687.
-      Cause: relative windows resolve against wall-clock today (Sep 2026)
-      while the eval corpus is frozen at Jan–Mar 2026 — the one affected
-      "امبارح" case retrieves nothing. Correct behavior under the
-      daily-refresh vision (fresh corpus), unmeasurable on a frozen corpus.
-      Revisit when the corpus is fresh. (Also reverted the eval-harness mirror
-      of the production call path; harness is back to pristine.)
+      `retrieve(date_from/date_to)`, wired in `_prepare`): **RESTORED**.
+      Was reverted at MRR 0.768 → 0.762 (−0.6pp): relative windows resolve
+      against wall-clock today while the corpus was frozen at Jan–Mar 2026,
+      so "امبارح" windows matched nothing. Correct under daily-refresh;
+      re-measure after scraping to Sep 2026. Eval harness calls
+      `retrieve()` directly (no `_prepare`), so it stays neutral there by
+      design — production-only path.
 - [x] Experiment 2 — Dialect→MSA BM25 expansion (`DIALECT_EXPANSIONS`, dense
-      untouched): **REVERTED**. Result: MRR 0.768 → 0.768 (±0), Kw@1
-      0.756 → 0.756, R@3 unchanged; BM25-only MRR 0.719 → 0.718 (noise).
-      The dense side (0.7 fusion weight) dominates; append-only BM25 tokens
-      don't move fused rankings on this set.
+      untouched): **RESTORED**. Was reverted at MRR 0.768 → 0.768 (±0);
+      BM25-only 0.719 → 0.718 (noise). Dense (0.7 fusion weight) dominates;
+      append-only + deduped so it can't hurt fused rankings. Re-measure
+      after rescrape with dated/dialect eval cases.
 - [ ] Stretch — AraBERT embedder trial via `build_index --rebuild`
       (config-driven): NOT RUN (needs GPU + model download; `--model` flag
       ready for it).
@@ -161,7 +160,7 @@ Kw@1 ≥ +1pp with R@3 not worse; else revert + log. Full runs on real corpus.
 | `tests/test_model_fallback.py` (update) | env routing, empty→big retry, force-big 429, no-second-retry, cache-under-effective-model | 8 pass |
 | `tests/test_api_endpoints.py` (new) | conversation passthrough, SSE sequence, 429, /health | 5 pass |
 | `tests/test_cache.py` (update) | conversation_key shift, size-cap eviction (+9 existing) | 12 pass |
-| `tests/test_temporal.py` | — | REMOVED with reverted experiment 1 |
+| `tests/test_temporal.py` | date-window parser incl. dialect forms | 8 pass |
 | `tests/test_intent.py` | regression: no new misroutes | pass |
 
 ## Verification & docs

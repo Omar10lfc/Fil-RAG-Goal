@@ -19,6 +19,7 @@ from groq import APIStatusError, Groq, RateLimitError
 
 from qa_engine import cache, prompts
 from qa_engine.intent import EXTRACTIVE_INTENTS, detect_intent
+from qa_engine.temporal import extract_date_window
 from retrieval.hybrid_retriever import FilGoalRetriever
 
 load_dotenv()
@@ -343,6 +344,14 @@ class FilGoalRAG:
         merged = dict(FILTER_MAP.get(intent, {}))
         if filters:
             merged.update(filters)  # explicit caller filters win over intent defaults
+        if intent == "match_result":
+            # Weakest intent (Kw-hit 0.785): "امبارح" questions need dated
+            # evidence, and the recency boost alone is too gentle to exclude
+            # older same-fixture coverage. No date signal → no filtering.
+            date_from, date_to = extract_date_window(query)
+            if date_from or date_to:
+                merged["date_from"] = date_from
+                merged["date_to"] = date_to
         log.info(
             f"Intent: {intent} | Filters: {merged} | Query: {query}",
             extra={"intent": intent},
