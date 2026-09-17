@@ -16,6 +16,7 @@ import pytest
 # isolated copy to raise from our patched _groq_completion.
 from groq import RateLimitError  # noqa: E402
 
+import qa_engine.rag_pipeline as rag_pipeline
 from qa_engine import cache, prompts
 from qa_engine.rag_pipeline import (
     ERROR_ANSWER,
@@ -253,3 +254,18 @@ def test_no_retry_on_second_failure():
     chunk_ids = ["c0"]
     assert cache.get(GROQ_MODEL_BIG,   "match_result", chunk_ids, "ما نتيجة مباراة الأهلي؟") is None
     assert cache.get(GROQ_MODEL_SMALL, "match_result", chunk_ids, "ما نتيجة مباراة الأهلي؟") is None
+
+
+def test_match_result_prepare_omits_none_date_filters(monkeypatch):
+    """When only one bound is extracted, _prepare should not pass None-valued
+    date filters into retriever kwargs."""
+    rag = _build_rag_with_fake_retriever([])
+    monkeypatch.setattr(rag_pipeline, "detect_intent", lambda _query: "match_result")
+    monkeypatch.setattr(rag_pipeline, "extract_date_window", lambda _query: (None, "2026-05-10"))
+
+    _ = rag._prepare("q")
+
+    kwargs = rag.retriever.retrieve.call_args.kwargs
+    assert kwargs["filter_type"] == "match_result"
+    assert kwargs["date_to"] == "2026-05-10"
+    assert "date_from" not in kwargs

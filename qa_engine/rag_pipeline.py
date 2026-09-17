@@ -350,8 +350,10 @@ class FilGoalRAG:
             # older same-fixture coverage. No date signal → no filtering.
             date_from, date_to = extract_date_window(query)
             if date_from or date_to:
-                merged["date_from"] = date_from
-                merged["date_to"] = date_to
+                if date_from is not None:
+                    merged["date_from"] = date_from
+                if date_to is not None:
+                    merged["date_to"] = date_to
         log.info(
             f"Intent: {intent} | Filters: {merged} | Query: {query}",
             extra={"intent": intent},
