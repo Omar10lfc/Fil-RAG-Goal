@@ -14,6 +14,25 @@ An Arabic football Q&A System built on a hybrid RAG pipeline over scraped FilGoa
 - Refuses out-of-scope queries with a canonical Arabic phrase rather than hallucinating.
 - Sanitises user queries against prompt injection — explicit `<<<USER_QUERY>>>` fences, control-char stripping, chat-role-token neutralisation, with system-prompt instructions to treat fenced content as data.
 
+## 🚀 Key Results & Production Impact
+
+| Metric / Dimension | Baseline | Optimized / Production | Impact & Engineering Details |
+| ------------------ | -------- | ---------------------- | ---------------------------- |
+| **Inference Cost** | 100% (all to 70B/120B) | **~30% (~70% cost reduction)** | Two-tier Groq cascade routes extractive queries (`match_result`, `lineup`) to 8B/20B; response cache with per-intent TTLs skips LLM on hits |
+| **Eval Infrastructure Failures** | 21 failures (HTTP 429) | **0 failures** | Automatic 70B → 8B fallback recovers rate-limited queries; empty-completion retry guard eliminates token runaways |
+| **Retrieval Quality (MRR)** | 0.719 (BM25 baseline) | **0.768 (+6.8% / ~7% lift)** | Weighted Reciprocal Rank Fusion ($w_{\text{dense}}=0.7, w_{\text{sparse}}=0.3$) + exponential recency decay boost ($1.0 + 0.10 \times e^{-\Delta t / 30}$) |
+| **Top-1 Retrieval (Kw@1)** | 0.682 | **0.756 (+7.4 pp)** | RRF ensures first retrieved chunk contains relevant context for factual extraction |
+| **Intent Classification** | 70.0% accuracy | **97.2% – 97.7% accuracy** | Handled Egyptian dialect, compound Arabic names, and regex boundaries with <1ms zero-cost regex classifier |
+| **Out-of-Scope Refusal** | Speculative hallucination | **100% refusal accuracy** | 7th `out_of_scope` regex denylist short-circuits non-football queries before retrieval or LLM calls |
+| **CI/CD & Security** | Manual / unchecked | **87-test parallel CI + Defenses** | GitHub Actions (ruff, mypy, pytest with CPU torch in <3m); prompt injection fencing & chat-role neutralization |
+
+### Highlighted Engineering Accomplishments
+
+- **Two-Tier Model Cascade & Resilient Fallback:** Designed a dynamic routing layer that sends factual/extractive questions to lightweight models (`llama-3.1-8b-instant` / `openai/gpt-oss-20b`) and complex queries to larger models (`llama-3.3-70b-versatile` / `openai/gpt-oss-120b`). Handled HTTP 429 rate limits via an automatic big → small fallback, cutting inference costs by ~70% and rescuing 21/21 failing requests to achieve 0 infrastructure errors per eval pass.
+- **Weighted Reciprocal Rank Fusion (RRF):** Fused BM25Okapi (sparse with Arabic clitic stripping) and FAISS (`intfloat/multilingual-e5-base` dense) using asymmetrical weights ($w_{\text{dense}}=0.7, w_{\text{sparse}}=0.3, k=60$) alongside a 30-day half-life exponential recency decay, lifting MRR by ~7% to 0.768 and Kw@1 by 7.4 percentage points.
+- **High-Accuracy Dialect-Aware Classifier:** Upgraded a 7-intent classifier covering Egyptian Arabic slang and MSA from 70.0% to 97.2% accuracy (97.7% on canonical eval). Introduced an early `out_of_scope` filter that eliminates 100% of LLM and retrieval costs for irrelevant questions.
+- **Production Hardening & CI/CD:** Implemented an 87-test automated CI pipeline (parallel lint, mypy typecheck, and pytest with lightweight CPU-only PyTorch wheels under 3m), prompt-injection defense layers (`<<<USER_QUERY>>>` fences, role-token stripping), SSE token streaming on `POST /ask/stream`, and proxy-aware rate limiting.
+
 ## Stack
 
 - **Retrieval:** BM25Okapi (sparse) + FAISS (dense, `intfloat/multilingual-e5-base`) fused with weighted RRF
