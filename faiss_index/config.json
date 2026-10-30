@@ -2,6 +2,6 @@
   "model_name": "intfloat/multilingual-e5-base",
   "dim": 768,
   "metric": "ip",
-  "n_vectors": 30172,
-  "n_chunks": 30172
+  "n_vectors": 30206,
+  "n_chunks": 30206
 }
